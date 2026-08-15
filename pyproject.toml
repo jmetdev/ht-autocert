@@ -1,0 +1,39 @@
+[project]
+name = "ht-wxcautocert"
+version = "0.3.0"
+description = "Multi-tenant certificate lifecycle automation for Cisco IOS-XE voice gateways"
+requires-python = ">=3.11"
+dependencies = [
+    "acme==5.7.0",
+    "cryptography==50.0.0",
+    "httpx==0.28.1",
+    "dnspython==2.8.0",
+    "pydantic==2.13.4",
+    "pydantic-settings==2.15.0",
+    "sqlmodel==0.0.39",
+    "typer==0.27.1",
+    "structlog==26.1.0",
+    "pyyaml==6.0.3",
+    "scrapli==2026.2.20",
+    "paramiko==3.5.1",
+    "scp==0.16.1",
+    "fastapi==0.141.1",
+    "uvicorn==0.52.3",
+    "apscheduler==3.11.3",
+]
+
+[project.optional-dependencies]
+dev = ["pytest==9.1.1", "pyflakes", "uvicorn[standard]==0.52.3"]
+
+[project.scripts]
+htac = "app.cli:app"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

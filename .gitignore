@@ -1,0 +1,53 @@
+# --- Secrets -----------------------------------------------------------------
+# .env.htac holds HTAC_MASTER_KEY, which wraps every escrowed gateway private
+# key in the datastore. It must never be committed.
+.env.htac
+.env
+secrets/
+*.ini
+!pyproject.toml
+
+# --- Datastore ---------------------------------------------------------------
+# Contains escrowed private keys and sealed PKCS12 bundles.
+data/
+*.db
+*.sqlite*
+
+# --- Key material ------------------------------------------------------------
+*.p12
+*.pem
+*.key
+
+# --- Python ------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.so
+.venv/
+venv/
+ENV/
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# --- Web ---------------------------------------------------------------------
+web/node_modules/
+web/dist/
+web/tsconfig.tsbuildinfo
+
+# --- Logs and temp -----------------------------------------------------------
+*.log
+*.tmp
+.cache/
+
+# --- Editors / OS ------------------------------------------------------------
+.DS_Store
+.AppleDouble
+.LSOverride
+.idea/
+.vscode/
+*.swp
+*.swo
+*~

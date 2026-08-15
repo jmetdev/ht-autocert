@@ -1,0 +1,52 @@
+# Twingate connectivity overlay.
+#
+#   docker compose -f docker-compose.htac.yml -f docker-compose.twingate.yml up -d
+#
+# The tunnel runs as a SIDECAR and the application joins its network namespace.
+# Two reasons this is better than putting the client inside the app image:
+#
+#   1. NET_ADMIN and /dev/net/tun stay on the sidecar. The container holding
+#      every escrowed private key does not get to reconfigure interfaces.
+#   2. Connectivity becomes swappable. Replacing Twingate with cloudflared or
+#      WireGuard is a compose change, not an application rebuild.
+#
+# Setup, once, in the Twingate admin console:
+#   * Team > Service Accounts -> create a service account for this host
+#   * Generate a service key; save the JSON verbatim to ./secrets/twingate.json
+#   * Assign it the Resources covering your gateway management subnets
+services:
+  twingate:
+    image: twingate/client:1
+    environment:
+      TWINGATE_NETWORK: ${TWINGATE_NETWORK:?set TWINGATE_NETWORK to your Twingate network name}
+      TWINGATE_LABEL_HOSTNAME: ht-wxcautocert
+    volumes:
+      - ./secrets/twingate.json:/etc/twingate/service_key.json:ro
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    sysctls:
+      net.ipv4.ip_forward: "1"
+    # The application's port is published here, because a container sharing this
+    # namespace cannot publish ports of its own.
+    ports:
+      - "127.0.0.1:8080:8000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "twingate status | grep -qi online"]
+      interval: 30s
+      timeout: 10s
+      start_period: 30s
+      retries: 5
+
+  htac:
+    # Share the sidecar's network stack: gateway addresses resolve and route
+    # through Twingate exactly as they would on-prem.
+    network_mode: "service:twingate"
+    depends_on:
+      twingate:
+        condition: service_healthy
+    # Ports are declared on the twingate service above; a service using
+    # network_mode: service:* must not declare its own.
+    ports: !reset []

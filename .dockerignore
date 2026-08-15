@@ -1,0 +1,46 @@
+# --- Secrets. Never send these to the daemon, let alone into an image. -------
+.env
+.env.*
+!.env.htac.example
+cloudflare.ini
+*.ini
+secrets/
+*.p12
+*.pem
+*.key
+
+# --- Datastore: contains escrowed private keys ------------------------------
+data/
+*.db
+*.sqlite*
+
+# --- Build artefacts and dependencies ---------------------------------------
+# node_modules must be excluded or it is copied over the image's own `npm ci`
+# result, and it dominates the build context (240MB+).
+web/node_modules/
+web/dist/
+.venv/
+venv/
+ENV/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+
+# --- Version control and tooling ---------------------------------------------
+.git/
+.gitignore
+.github/
+tests/
+htac
+
+# --- Editors / OS ------------------------------------------------------------
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# --- Docs --------------------------------------------------------------------
+*.md

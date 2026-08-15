@@ -1,0 +1,47 @@
+# Web console + renewal scheduler.
+#
+#   docker compose -f docker-compose.htac.yml up -d --build
+#   docker compose -f docker-compose.htac.yml logs -f
+#   docker compose -f docker-compose.htac.yml run --rm --entrypoint htac htac doctor
+#
+# The container needs routed access to the gateways' management addresses and
+# outbound HTTPS to the ACME CA and the Cloudflare API.
+services:
+  htac:
+    build:
+      context: .
+      dockerfile: Dockerfile.htac
+    image: ht-wxcautocert:latest
+    # Published on 8866 for autocert.managedcollab.com.
+    #
+    # Bound to loopback by default: the expectation is that a tunnel or reverse
+    # proxy on this host terminates TLS and forwards to 127.0.0.1:8866. Set
+    # HTAC_BIND=0.0.0.0 only if something off-box must reach it directly, and
+    # only with TLS in front -- the console can issue and deploy across the
+    # whole fleet.
+    ports:
+      - "${HTAC_BIND:-127.0.0.1}:${HTAC_HOST_PORT:-8866}:8000"
+    volumes:
+      # The datastore holds escrowed private keys. Back this volume up, and
+      # treat the backup with the same care as the master key.
+      - htac-data:/srv/data
+    env_file:
+      - .env.htac
+    environment:
+      HTAC_DATABASE_URL: sqlite:////srv/data/htac.db
+      # Structured logs for whatever collects them on the server.
+      HTAC_LOG_JSON: "true"
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=5).status==200 else 1)"]
+      interval: 30s
+      timeout: 10s
+      start_period: 20s
+      retries: 3
+    restart: unless-stopped
+    # Nothing here needs to escalate privileges.
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  htac-data:

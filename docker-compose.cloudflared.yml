@@ -1,0 +1,47 @@
+# Cloudflare Tunnel connectivity overlay (alternative to Twingate).
+#
+#   docker compose -f docker-compose.htac.yml -f docker-compose.cloudflared.yml up -d
+#
+# Same sidecar shape as the Twingate overlay, and the same reasoning: tunnel
+# privileges stay off the container holding escrowed keys, and connectivity is
+# swappable without rebuilding the app.
+#
+# IMPORTANT -- read before choosing this over Twingate:
+#
+# `cloudflared access tcp` is a per-hostname port forwarder. Each gateway needs
+# its own listener and its own local port, and every device's mgmt_address must
+# then be a loopback port rather than its real address. That is workable for a
+# handful of devices and unpleasant at fifty.
+#
+# If you want routed access to whole management subnets from Cloudflare, the
+# equivalent of Twingate is Cloudflare Tunnel *private networks* plus the WARP
+# client in the sidecar -- which is the same architecture, so pick whichever
+# vendor you already run.
+#
+# Setup, once:
+#   * Zero Trust > Networks > Tunnels -> create a tunnel, run its connector
+#     on-prem with a route to the gateway management subnet
+#   * Zero Trust > Access -> publish each gateway's SSH as a self-hosted app
+#   * Create a service token; save the client id/secret into .env.htac as
+#     CF_ACCESS_CLIENT_ID / CF_ACCESS_CLIENT_SECRET
+services:
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    # One listener per gateway. Add a line per device, then set that device's
+    # mgmt_address to 127.0.0.1 and its ssh_port to the matching local port:
+    #   ./htac device add ... --address 127.0.0.1 --ssh-port 2201
+    command: >
+      access tcp
+      --hostname ${CF_GATEWAY_HOSTNAME:?set CF_GATEWAY_HOSTNAME}
+      --url 0.0.0.0:2201
+      --service-token-id ${CF_ACCESS_CLIENT_ID:?set CF_ACCESS_CLIENT_ID}
+      --service-token-secret ${CF_ACCESS_CLIENT_SECRET:?set CF_ACCESS_CLIENT_SECRET}
+    ports:
+      - "127.0.0.1:8080:8000"
+    restart: unless-stopped
+
+  htac:
+    network_mode: "service:cloudflared"
+    depends_on:
+      - cloudflared
+    ports: !reset []
