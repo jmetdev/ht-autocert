@@ -1,6 +1,6 @@
 [project]
-name = "ht-wxcautocert"
-version = "0.3.0"
+name = "ht-autocert"
+version = "2.0.0"
 description = "Multi-tenant certificate lifecycle automation for Cisco IOS-XE voice gateways"
 requires-python = ">=3.11"
 dependencies = [

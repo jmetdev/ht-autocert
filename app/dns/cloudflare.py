@@ -92,7 +92,7 @@ class CloudflareSolver:
                 "name": name,
                 "content": value,
                 "ttl": self._ttl,
-                "comment": "ht-wxcautocert ACME DNS-01 (transient)",
+                "comment": "ht-autocert ACME DNS-01 (transient)",
             },
         )
         record_id = payload["result"]["id"]

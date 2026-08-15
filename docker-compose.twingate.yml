@@ -19,7 +19,7 @@ services:
     image: twingate/client:1
     environment:
       TWINGATE_NETWORK: ${TWINGATE_NETWORK:?set TWINGATE_NETWORK to your Twingate network name}
-      TWINGATE_LABEL_HOSTNAME: ht-wxcautocert
+      TWINGATE_LABEL_HOSTNAME: ht-autocert
     volumes:
       - ./secrets/twingate.json:/etc/twingate/service_key.json:ro
     cap_add:

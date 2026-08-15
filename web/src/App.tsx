@@ -74,7 +74,7 @@ export function App() {
         <Group h="100%" px="md" gap="sm" wrap="nowrap">
           <Burger opened={opened} onClick={toggle} hiddenFrom="sm" size="sm" />
           <IconCertificate size={22} />
-          <Text fw={700}>ht-wxcautocert</Text>
+          <Text fw={700}>ht-autocert</Text>
           <Text size="xs" c="dimmed" visibleFrom="md">
             Cisco IOS-XE voice gateway certificates
           </Text>

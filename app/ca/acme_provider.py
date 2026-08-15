@@ -31,7 +31,7 @@ from app.dns.propagation import wait_for_txt
 
 log = structlog.get_logger(__name__)
 
-USER_AGENT = "ht-wxcautocert/0.2.0"
+USER_AGENT = "ht-autocert/2.0.0"
 
 
 class AcmeError(RuntimeError):

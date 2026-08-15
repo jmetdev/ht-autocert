@@ -11,7 +11,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.htac
-    image: ht-wxcautocert:latest
+    image: ht-autocert:latest
     # Published on 8866 for autocert.managedcollab.com.
     #
     # Bound to loopback by default: the expectation is that a tunnel or reverse

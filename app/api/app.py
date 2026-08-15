@@ -53,7 +53,7 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(
-        title="ht-wxcautocert",
+        title="ht-autocert",
         description="Certificate lifecycle automation for Cisco IOS-XE voice gateways",
         version="0.3.0",
         lifespan=lifespan,

@@ -1,7 +1,7 @@
 {
-  "name": "ht-wxcautocert-web",
+  "name": "ht-autocert-web",
   "private": true,
-  "version": "0.3.0",
+  "version": "2.0.0",
   "type": "module",
   "scripts": {
     "dev": "vite",

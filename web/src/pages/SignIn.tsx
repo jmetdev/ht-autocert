@@ -57,7 +57,7 @@ export function SignIn({ onSignedIn }: { onSignedIn: () => void }) {
         <Stack>
           <Group gap="xs">
             <IconShieldLock size={22} />
-            <Title order={3}>ht-wxcautocert</Title>
+            <Title order={3}>ht-autocert</Title>
           </Group>
 
           {error && (
