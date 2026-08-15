@@ -2,10 +2,17 @@
 #
 #   docker compose up -d --build
 #   docker compose logs -f
-#   ./htac doctor
+#   ./htacd doctor
 #
 # The container needs routed access to the gateways' management addresses and
 # outbound HTTPS to the ACME CA and the Cloudflare API.
+
+# Pinned rather than derived from the directory name. The datastore volume is
+# named after the compose project, so renaming or moving this directory would
+# otherwise silently point the service at a new, empty volume instead of
+# failing visibly -- with every escrowed key still in the old one.
+name: ht-autocert
+
 services:
   htac:
     build:

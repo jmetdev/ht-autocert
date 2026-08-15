@@ -392,6 +392,70 @@ ownership afterwards or the app starts and dies with
 docker compose run --rm --user root --entrypoint sh htac -c 'chown -R 10001:10001 /srv/data'
 ```
 
+### Running CLI commands against the container
+
+Use `./htacd` instead of `./htac`. Same commands, run inside the container:
+
+```bash
+./htacd doctor
+```
+
+```bash
+./htacd device trust vg01.husd.clients.managedcollab.com
+```
+
+**This distinction matters.** `./htac` runs on the host and talks to whatever
+`HTAC_DATABASE_URL` points at there — by default `./data/htac.db`. The
+container's datastore lives in the `htac-data` volume. They are different
+databases, and running `./htac` against a containerised deployment operates on
+an empty or stale copy *without erroring*, which looks like data loss until you
+notice which database you were talking to.
+
+`htacd` prefers `docker compose exec`, so commands run in the container that is
+already serving — same filesystem, same network, same secrets. If the service
+is stopped it falls back to a one-off container so the CLI still works during
+maintenance, and says so. It allocates a TTY only when stdin is a terminal, so
+prompting commands (`device set-credentials`, `device trust`) work
+interactively and piped invocations don't fail with *the input device is not a
+TTY*.
+
+When the service runs behind a network sidecar, tell `htacd` so one-off
+containers get the same network. Without this, issuance succeeds and deployment
+times out — the sidecar is the only route to the gateways:
+
+```bash
+HTAC_OVERLAY=twingate ./htacd deploy --fqdn vg01.husd.clients.managedcollab.com
+```
+
+### The datastore volume is named after the compose project
+
+`docker-compose.yml` pins `name: ht-autocert`, so the volume is always
+`ht-autocert_htac-data`. Without that pin the project name comes from the
+directory, and renaming or moving the checkout would point the service at a
+new, empty volume rather than failing — with every escrowed key still sitting
+in the old one.
+
+If you are moving a deployment between project names, copy the volume rather
+than trusting the new stack to find it:
+
+```bash
+docker volume create ht-autocert_htac-data
+```
+
+```bash
+docker run --rm -v old_htac-data:/from:ro -v ht-autocert_htac-data:/to alpine:3.20 sh -c 'cp -a /from/. /to/ && chown -R 10001:10001 /to'
+```
+
+The `chown` matters: files copied as root are unwritable by the container's
+`htac` user, and the symptom is `attempt to write a readonly database` on the
+first issuance rather than at startup.
+
+Confirm the new stack sees the data before removing the old volume:
+
+```bash
+./htacd doctor
+```
+
 ### Before exposing it on a server
 
 The console can issue and deploy certificates across the whole fleet and

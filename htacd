@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+#
+# Run htac CLI commands against the containerised service.
+#
+# Use this instead of ./htac once the app runs in Docker. ./htac talks to
+# whatever database HTAC_DATABASE_URL points at on the host; the container's
+# datastore lives in the htac-data volume, so the two are different databases.
+# Running ./htac against a containerised deployment silently operates on an
+# empty or stale copy rather than failing, which is why this wrapper exists.
+#
+#   ./htacd doctor
+#   ./htacd device trust vg01.husd.clients.managedcollab.com
+#   ./htacd webex orgs
+#
+# Set HTAC_OVERLAY when the service runs behind a network sidecar, so one-off
+# containers get the same network as the running service:
+#
+#   HTAC_OVERLAY=twingate ./htacd deploy --fqdn vg01...
+#
+set -euo pipefail
+
+cd "$(dirname "$0")"
+
+SERVICE=htac
+COMPOSE=(docker compose -f docker-compose.htac.yml)
+
+# Overlays change the container's network namespace. A one-off container
+# started without them has no route to on-prem gateways, so issuance would work
+# and deployment would time out -- a confusing pair of symptoms.
+case "${HTAC_OVERLAY:-}" in
+  "") ;;
+  twingate)    COMPOSE+=(-f docker-compose.twingate.yml) ;;
+  cloudflared) COMPOSE+=(-f docker-compose.cloudflared.yml) ;;
+  *)
+    echo "htacd: unknown HTAC_OVERLAY '${HTAC_OVERLAY}' (use twingate or cloudflared)" >&2
+    exit 2
+    ;;
+esac
+
+if [ $# -eq 0 ]; then
+  set -- --help
+fi
+
+# Prompting commands (set-credentials, trust) need a TTY; CI and pipes must not
+# get one or docker fails with "the input device is not a TTY".
+tty_flag=()
+if [ ! -t 0 ]; then
+  tty_flag=(-T)
+fi
+
+# Prefer exec: it reuses the running container, so the command sees the same
+# filesystem, network and secrets as the service itself. Fall back to a one-off
+# container when the service is stopped, so the CLI still works during
+# maintenance.
+if [ -n "$("${COMPOSE[@]}" ps -q "$SERVICE" 2>/dev/null)" ]; then
+  exec "${COMPOSE[@]}" exec "${tty_flag[@]}" "$SERVICE" htac "$@"
+fi
+
+echo "htacd: service is not running; using a one-off container." >&2
+exec "${COMPOSE[@]}" run --rm "${tty_flag[@]}" --entrypoint htac "$SERVICE" "$@"
