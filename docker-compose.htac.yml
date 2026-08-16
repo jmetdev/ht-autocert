@@ -39,6 +39,12 @@ services:
       start_period: 20s
       retries: 3
     restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop:
+      - ALL
     # Nothing here needs to escalate privileges.
     security_opt:
       - no-new-privileges:true

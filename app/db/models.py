@@ -215,7 +215,10 @@ class Device(SQLModel, table=True):
     # revocation-check to assert on the trustpoint. The Webex template ships
     # 'crl', which Let's Encrypt certificates cannot satisfy.
     revocation_check: str = "none"
-    use_restconf: bool = False
+    # Cisco Catalyst 8200 platforms expose certificate state through IOS-XE
+    # RESTCONF. Prefer it; SSH is retained only for PKCS12 import operations
+    # which do not have a native YANG action.
+    use_restconf: bool = True
     restconf_port: int = 443
 
     enabled: bool = True

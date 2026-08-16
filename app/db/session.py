@@ -41,7 +41,9 @@ def get_engine(database_url: str | None = None):
 
 
 def init_db(database_url: str | None = None) -> None:
-    import app.db.models  # noqa: F401 - register tables
+    from importlib import import_module
+
+    import_module("app.db.models")  # register SQLModel tables
 
     SQLModel.metadata.create_all(get_engine(database_url))
 

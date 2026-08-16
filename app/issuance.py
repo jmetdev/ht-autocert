@@ -347,24 +347,3 @@ class IssuanceService:
             )
         )
         self.session.commit()
-
-    # -- export for the Phase 1 hand-off to Ansible ------------------------
-
-    def export_pkcs12(
-        self, cert: Certificate, device: Device, actor: str = "cli"
-    ) -> tuple[bytes, str]:
-        """Unseal a bundle and its password, recording the access."""
-        blob = self.box.open(cert.pkcs12_sealed, aad_pkcs12(device.fqdn, cert.serial))
-        password = self.box.open(
-            cert.pkcs12_password_sealed, aad_pkcs12_password(device.fqdn, cert.serial)
-        ).decode()
-        self.session.add(
-            AuditEvent(
-                actor=actor,
-                action="p12.export",
-                subject=device.fqdn,
-                detail=f"serial={cert.serial}",
-            )
-        )
-        self.session.commit()
-        return blob, password

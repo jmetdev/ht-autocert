@@ -1,0 +1,37 @@
+# Public VPS overlay: Caddy obtains and renews TLS certificates automatically.
+# Always combine this file with docker-compose.htac.yml via scripts/vps-deploy.sh.
+services:
+  htac:
+    expose:
+      - "8000"
+
+  caddy:
+    image: caddy:2-alpine
+    depends_on:
+      htac:
+        condition: service_healthy
+    environment:
+      HTAC_DOMAIN: "${HTAC_DOMAIN:?set HTAC_DOMAIN in .env.htac}"
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+      - /run:size=8m,mode=0755
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+volumes:
+  caddy-data:
+  caddy-config:

@@ -69,17 +69,50 @@ def load_token(session: Session, box: SecretBox, email: str) -> str:
             "with an API token rather than Webex, or before Control Hub access "
             "was enabled. Sign out and sign in with Webex again."
         )
-    if record.expired():
-        raise WebexTokenError(
-            "Your Webex token has expired. Sign out and sign in again to renew it."
-        )
     try:
-        return box.open(record.access_sealed, aad_webex_token(email, "access")).decode()
+        access = box.open(record.access_sealed, aad_webex_token(email, "access")).decode()
+        if not record.expired():
+            return access
+        if not record.refresh_sealed:
+            raise WebexTokenError(
+                "Your Webex token has expired and has no refresh token. Sign out "
+                "and sign in again."
+            )
+        refresh = box.open(
+            record.refresh_sealed, aad_webex_token(email, "refresh")
+        ).decode()
     except VaultError as exc:
         raise WebexTokenError(
             "Your stored Webex token cannot be decrypted with the current "
             "master key. Sign out and sign in again."
         ) from exc
+
+    # Refresh on demand so Control Hub discovery continues beyond the short
+    # access-token lifetime without keeping a second service credential.
+    from app.auth import AuthError, WebexOAuth
+    from app.config import get_settings
+
+    settings = get_settings()
+    if not settings.webex_enabled:
+        raise WebexTokenError(
+            "Your Webex token expired and OAuth is not configured for refresh."
+        )
+    oauth = WebexOAuth(
+        settings.webex_client_id,
+        settings.webex_client_secret,
+        settings.webex_redirect_uri,
+        scopes=settings.webex_scope_string,
+    )
+    try:
+        access, refresh, expires_in = oauth.refresh(refresh)
+    except AuthError as exc:
+        raise WebexTokenError(f"Webex token refresh failed: {exc}") from exc
+    finally:
+        oauth.close()
+    store_token(
+        session, box, email, access, refresh, expires_in, record.scopes or ""
+    )
+    return access
 
 
 def forget_token(session: Session, email: str) -> None:
