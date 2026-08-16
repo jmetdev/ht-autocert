@@ -2,8 +2,8 @@
 
 Multi-tenant certificate lifecycle automation for Cisco IOS-XE voice gateways.
 Issues certificates from any ACME CA using Cloudflare DNS-01, escrows the
-private key, packages it as PKCS12, and deploys it to the gateway over SSH with
-a blue/green trustpoint cutover — with a web console, a scheduler and a CLI on
+private key, packages it as PKCS12, and deploys it to Cisco Catalyst 8200 gateways with
+an API-first blue/green trustpoint cutover — with a web console, a scheduler and a CLI on
 top.
 
 This replaces the original Ansible implementation (certbot + an EEM applet)
@@ -12,28 +12,6 @@ depends on it.
 
 ---
 
-## What changed from the Ansible version, and why
-
-| Ansible version | Now |
-|---|---|
-| `certbot` CLI, Let's Encrypt only | `acme` library — any ACME CA by directory URL, **ZeroSSL via EAB** |
-| Renewal state from grepping stdout for `Successfully received certificate` | Renewal decided from stored metadata and device-reported state |
-| Fixed `--dns-cloudflare-propagation-seconds 25` | Polls the zone's authoritative nameservers until the TXT is actually visible |
-| `openssl pkcs12 -export`, no cipher flags | Explicit `modern` / `legacy` profile per device, verified by re-parsing |
-| Chain whatever certbot picked | Chain selected by issuer CN and recorded per certificate |
-| Keys as bare PEM on a bind mount | Envelope-encrypted in the datastore, AAD-bound to the record |
-| One shared `PKCS12_PASSWORD`, baked into device config | Random password per issuance, never written to `running-config` |
-| EEM applet deleted the trustpoint and zeroized the key **before** importing | Blue/green: import into the idle trustpoint, verify, then rebind |
-| Nothing ever read device state back | Every decision made against `show crypto pki certificates` / RESTCONF oper data |
-| Nothing ever ran `write memory` | Config persisted after a confirmed cutover |
-| One shared `VG_USERNAME`/`VG_PASSWORD` for every gateway | Per-device credentials, sealed, with tenant defaults |
-| `host_key_checking = False` fleet-wide | Host key checking on by default, per-device opt-out |
-| Monthly cron, whole fleet at once | Daily scheduler with a stable per-device renewal offset |
-| No visibility except a log file | Web console: fleet state, run history, per-device actions |
-| Single-host inventory | Tenants → devices, one Cloudflare zone across all clients |
-| Unpinned deps, runs as root | Pinned, non-root container |
-
----
 
 ## Quick start
 
@@ -92,16 +70,12 @@ Add a tenant:
 ```
 
 Then add devices — from Webex Control Hub (see *Discovering gateways* below),
-one at a time, or from an Ansible-style inventory file if you are migrating
-from the old playbook:
+one at a time:
 
 ```bash
 ./htac device add --tenant husd --hostname vg01 --fqdn vg01.husd.clients.managedcollab.com --address 10.0.0.1
 ```
 
-```bash
-./htac device import-inventory /path/to/inventory.yml --tenant husd
-```
 
 Check state, then issue:
 
@@ -210,7 +184,7 @@ Serves the console on `127.0.0.1:8000` and runs the scheduler in the same
 process. Sign in with `HTAC_API_TOKEN`.
 
 The console shows fleet state, per-device certificate history, live device
-state read over SSH, and run history. It can issue and deploy on demand —
+state read through IOS-XE RESTCONF, and run history. It can issue and deploy on demand —
 including the stage-only (`--no-rebind`) path. Tenants, CA profiles and
 credentials stay CLI-only, so secrets are never entered into or returned by the
 web API.
@@ -282,8 +256,8 @@ confirmed on a real 17.15.3a gateway:
    interaction ends on a returned prompt rather than an exact match, but they
    should be checked against one device before a fleet run.
 2. **RESTCONF oper paths.** `Cisco-IOS-XE-crypto-pki-oper:crypto-pki-oper-data`
-   is read from the published model; `use_restconf` is off by default and the
-   SSH path is the default reader.
+   is read from the published model and is enabled by default. Validate the
+   native model paths against the installed IOS-XE train.
 3. **PKCS12 profile**, as above.
 
 Run `./htac deploy --fqdn <one-device> --no-rebind` first. It imports and verifies
@@ -295,11 +269,6 @@ without cutting over, so the riskiest step is exercised with nothing at stake.
 
 - **Alerting.** Failures land in the run log and the console; nothing pushes to
   email/Webex yet.
-- **SSO.** Auth is a single bearer token. OIDC against Entra would be the next
-  step, and is the main thing standing between this and multi-operator use.
-- **RBAC.** Any token holder can act on any tenant.
-- **RESTCONF by default.** `use_restconf` is off; the SSH reader is the default
-  path until the oper-data model is confirmed on a real 17.15.3a gateway.
 
 ---
 
@@ -309,8 +278,81 @@ without cutting over, so the riskiest step is exercised with nothing at stake.
 docker compose -f docker-compose.htac.yml up -d --build
 ```
 
-Console on `127.0.0.1:8080`, scheduler in the same container. Sign in with
+Console on `127.0.0.1:8866`, scheduler in the same container. Sign in with
 `HTAC_API_TOKEN` from `.env.htac`.
+
+### Deploying to a public Docker VPS
+
+The repository includes a VPS overlay with Caddy as the TLS reverse proxy. It
+obtains and renews the public HTTPS certificate automatically; the application
+container remains unprivileged and is not directly exposed to the internet.
+
+On a new Ubuntu/Debian VPS, install Docker Engine and the Compose v2 plugin,
+then clone this repository. In the repository directory:
+
+```bash
+cp .env.htac.example .env.htac
+chmod 600 .env.htac
+openssl rand -base64 32   # use as HTAC_MASTER_KEY
+openssl rand -base64 32   # use a different value as HTAC_API_TOKEN
+```
+
+Fill in at least these settings:
+
+```dotenv
+HTAC_DOMAIN=autocert.example.com
+HTAC_MASTER_KEY=...
+HTAC_API_TOKEN=...
+HTAC_CLOUDFLARE_API_TOKEN=...
+HTAC_WEBEX_CLIENT_ID=...
+HTAC_WEBEX_CLIENT_SECRET=...
+HTAC_WEBEX_REDIRECT_URI=https://autocert.example.com/auth/callback
+HTAC_WEBEX_ALLOWED_DOMAINS=example.com
+HTAC_BOOTSTRAP_ADMINS=admin@example.com
+```
+
+Before starting, create an `A` record (and `AAAA` only if IPv6 works on the
+VPS) for `HTAC_DOMAIN`, pointing to the VPS. Allow inbound TCP 22, 80 and 443
+and UDP 443 in both the provider firewall and the host firewall. Do **not**
+publish the application port 8000.
+
+Deploy, migrate the datastore, wait for Docker health, test HTTPS and run the
+application diagnostics with one command:
+
+```bash
+chmod +x scripts/vps-deploy.sh scripts/vps-smoke-test.sh
+./scripts/vps-deploy.sh
+```
+
+The final line should report that `https://<HTAC_DOMAIN>` is healthy. If it
+does not, inspect both services:
+
+```bash
+docker compose --env-file .env.htac \
+  -f docker-compose.htac.yml -f docker-compose.vps.yml ps
+docker compose --env-file .env.htac \
+  -f docker-compose.htac.yml -f docker-compose.vps.yml logs --tail=200
+```
+
+For Webex OAuth, register the exact HTTPS callback shown above in the Webex
+integration. A mismatch in scheme, hostname, path, or trailing slash is
+rejected before deployment by the script.
+
+After the first start, bootstrap the application through the container:
+
+```bash
+docker compose --env-file .env.htac \
+  -f docker-compose.htac.yml -f docker-compose.vps.yml \
+  run --rm --entrypoint htac htac init
+docker compose --env-file .env.htac \
+  -f docker-compose.htac.yml -f docker-compose.vps.yml \
+  run --rm --entrypoint htac htac doctor
+```
+
+Re-run `./scripts/vps-deploy.sh` after pulling an update. Named volumes preserve
+the SQLite datastore and Caddy state across rebuilds. Back up `htac-data` and
+store `HTAC_MASTER_KEY` separately; neither is useful for recovery without the
+other.
 
 ### Before it will reach your gateways
 

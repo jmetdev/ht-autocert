@@ -42,7 +42,9 @@ def _column_sql(column) -> str:
 
 def migrate(database_url: str | None = None) -> list[str]:
     """Add any columns present in the models but missing from the database."""
-    import app.db.models  # noqa: F401 - register tables
+    from importlib import import_module
+
+    import_module("app.db.models")  # register SQLModel tables
 
     engine = get_engine(database_url)
     SQLModel.metadata.create_all(engine)

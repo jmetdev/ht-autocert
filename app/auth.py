@@ -209,6 +209,31 @@ class WebexOAuth:
             raise AuthError("Webex returned no access token")
         return token, body.get("refresh_token"), int(body.get("expires_in") or 0)
 
+    def refresh(self, refresh_token: str) -> tuple[str, str | None, int]:
+        """Exchange a refresh token, preserving it when Webex omits a new one."""
+        response = self._client.post(
+            WEBEX_TOKEN_URL,
+            data={
+                "grant_type": "refresh_token",
+                "client_id": self.client_id,
+                "client_secret": self.client_secret,
+                "refresh_token": refresh_token,
+            },
+        )
+        if response.status_code >= 400:
+            raise AuthError(
+                f"Webex rejected the refresh token (HTTP {response.status_code})"
+            )
+        body = response.json()
+        token = body.get("access_token")
+        if not token:
+            raise AuthError("Webex returned no access token while refreshing")
+        return (
+            token,
+            body.get("refresh_token") or refresh_token,
+            int(body.get("expires_in") or 0),
+        )
+
     def fetch_user(self, access_token: str) -> WebexUser:
         response = self._client.get(
             WEBEX_ME_URL, headers={"Authorization": f"Bearer {access_token}"}

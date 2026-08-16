@@ -4,7 +4,7 @@ import httpx
 import pytest
 
 from app.devices.base import DeviceError
-from app.devices.restconf import OPER_PATH, RestconfReader
+from app.devices.restconf import OPER_PATH, SIP_UA_PATH, RestconfReader
 
 PAYLOAD = {
     "Cisco-IOS-XE-crypto-pki-oper:crypto-pki-bundle": [
@@ -33,8 +33,12 @@ def _reader(handler, **kwargs) -> RestconfReader:
 
 def test_reads_trustpoint_state():
     def handler(request):
-        assert request.url.path == OPER_PATH
-        return httpx.Response(200, json=PAYLOAD)
+        if request.url.path == OPER_PATH:
+            return httpx.Response(200, json=PAYLOAD)
+        assert request.url.path == SIP_UA_PATH
+        return httpx.Response(200, json={"Cisco-IOS-XE-native:signaling": {
+            "default": {"trustpoint": "HT-WxCAutoCert-A"}
+        }})
 
     state = _reader(handler).read_state()
     tp = state.trustpoints["HT-WxCAutoCert-A"]
@@ -43,6 +47,7 @@ def test_reads_trustpoint_state():
     assert tp.subject_cn == "vg01.husd.clients.example.com"
     assert tp.serial == "0A1B2C3D"  # normalised to uppercase for comparison
     assert tp.validity_end.month == 10
+    assert state.bound_trustpoint == "HT-WxCAutoCert-A"
 
 
 def test_empty_trustpoint_is_reported_without_certificate():

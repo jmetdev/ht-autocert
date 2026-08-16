@@ -168,6 +168,15 @@ def test_code_exchange_and_profile():
     assert user.org_id == "ORG123"
 
 
+def test_refresh_exchange_preserves_rotating_refresh_token():
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/access_token"
+        assert b"grant_type=refresh_token" in request.content
+        return httpx.Response(200, json={"access_token": "NEW", "expires_in": 3600})
+
+    assert _oauth(handler).refresh("REFRESH") == ("NEW", "REFRESH", 3600)
+
+
 def test_rejected_code_raises():
     oauth = _oauth(lambda r: httpx.Response(400, json={"message": "bad code"}))
     with pytest.raises(AuthError, match="rejected the authorization code"):

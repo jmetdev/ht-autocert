@@ -1,9 +1,10 @@
-"""RESTCONF reader for certificate state.
+"""RESTCONF reader for certificate and SIP trustpoint state.
 
-``Cisco-IOS-XE-crypto-pki-oper`` gives structured certificate state, which beats
-screen-scraping ``show`` output when the device has RESTCONF enabled. It is
-read-only here: PKI enrollment and import are exec-level operations with no
-clean YANG RPC, so those stay on the SSH transport.
+``Cisco-IOS-XE-crypto-pki-oper`` gives structured certificate state without
+screen-scraping ``show`` output. CSR/PKCS12 import operations are not exposed by
+the IOS-XE native YANG
+models, so deployment retains a narrowly scoped SSH compatibility path. Normal
+inventory and verification reads use the structured API.
 
 Requires ``restconf`` and ``ip http secure-server`` on the device.
 """
@@ -20,6 +21,7 @@ log = structlog.get_logger(__name__)
 OPER_PATH = (
     "/restconf/data/Cisco-IOS-XE-crypto-pki-oper:crypto-pki-oper-data/crypto-pki-bundle"
 )
+SIP_UA_PATH = "/restconf/data/Cisco-IOS-XE-native:native/sip-ua/crypto/signaling"
 
 
 def _parse_timestamp(value: str | None) -> datetime | None:
@@ -118,9 +120,45 @@ class RestconfReader:
                 break
             trustpoints[label] = state
 
-        log.debug("device.restconf_state", host=self.host, trustpoints=sorted(trustpoints))
-        # sip-ua binding is config, not oper data; the caller merges it in.
-        return DeviceState(trustpoints=trustpoints, bound_trustpoint=None)
+        bound = self._read_bound_trustpoint()
+        log.debug(
+            "device.restconf_state", host=self.host,
+            trustpoints=sorted(trustpoints), bound=bound,
+        )
+        return DeviceState(trustpoints=trustpoints, bound_trustpoint=bound)
+
+    def _read_bound_trustpoint(self) -> str | None:
+        """Read ``sip-ua crypto signaling`` from the native configuration API."""
+        try:
+            response = self._client.get(SIP_UA_PATH)
+        except httpx.HTTPError as exc:
+            raise DeviceError(f"{self.host}: RESTCONF request failed: {exc}") from exc
+        if response.status_code == 404:
+            return None
+        if response.status_code >= 400:
+            raise DeviceError(
+                f"{self.host}: RESTCONF returned HTTP {response.status_code} "
+                "while reading the SIP trustpoint binding"
+            )
+        payload = response.json()
+        signaling = payload.get("Cisco-IOS-XE-native:signaling", payload.get("signaling", payload))
+
+        def find_trustpoint(value):
+            if isinstance(value, dict):
+                for key, child in value.items():
+                    if key.split(":")[-1] == "trustpoint" and isinstance(child, str):
+                        return child
+                    found = find_trustpoint(child)
+                    if found:
+                        return found
+            elif isinstance(value, list):
+                for child in value:
+                    found = find_trustpoint(child)
+                    if found:
+                        return found
+            return None
+
+        return find_trustpoint(signaling)
 
     def close(self) -> None:
         self._client.close()

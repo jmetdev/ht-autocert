@@ -6,6 +6,7 @@ from sqlmodel import Session
 from app.db.models import Device, Tenant
 from app.devices.base import DeviceError
 from app.devices.ssh import IosXeSshTransport
+from app.devices.restconf import RestconfReader
 from app.vault import SecretBox
 
 log = structlog.get_logger(__name__)
@@ -88,6 +89,42 @@ def resolve_credentials(
     return username, password, enable_password
 
 
+class ApiFirstTransport:
+    """Use RESTCONF for state reads and open SSH only for unsupported PKI RPCs."""
+
+    def __init__(self, reader: RestconfReader, ssh: IosXeSshTransport):
+        self.reader = reader
+        self.ssh = ssh
+        self._ssh_open = False
+        # Preserve useful transport diagnostics without triggering delegation.
+        self.host_key = ssh.host_key
+        self.host = ssh.host
+        self.strict_host_key = ssh.strict_host_key
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc_info):
+        self.reader.close()
+        if self._ssh_open:
+            self.ssh.close()
+
+    def read_state(self):
+        return self.reader.read_state()
+
+    def _mutation(self, name, *args, **kwargs):
+        if not self._ssh_open:
+            self.ssh.open()
+            self._ssh_open = True
+        return getattr(self.ssh, name)(*args, **kwargs)
+
+    def __getattr__(self, name):
+        # Deployment-only operations have no native IOS-XE RESTCONF equivalent.
+        if name.startswith("_"):
+            raise AttributeError(name)
+        return lambda *args, **kwargs: self._mutation(name, *args, **kwargs)
+
+
 def build_transport(session: Session, device: Device, box: SecretBox):
     username, password, enable_password = resolve_credentials(session, device, box)
     if device.strict_host_key and not device.ssh_host_key:
@@ -96,7 +133,7 @@ def build_transport(session: Session, device: Device, box: SecretBox):
             fqdn=device.fqdn,
             hint=f"./htac device trust {device.fqdn}",
         )
-    return IosXeSshTransport(
+    ssh = IosXeSshTransport(
         host=device.mgmt_address,
         username=username,
         password=password,
@@ -105,6 +142,14 @@ def build_transport(session: Session, device: Device, box: SecretBox):
         filesystem=device.filesystem,
         strict_host_key=device.strict_host_key,
         host_key=device.ssh_host_key,
+    )
+    if not device.use_restconf:
+        return ssh
+    return ApiFirstTransport(
+        RestconfReader(
+            device.mgmt_address, username, password, port=device.restconf_port
+        ),
+        ssh,
     )
 
 

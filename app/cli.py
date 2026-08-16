@@ -769,56 +769,6 @@ def device_add(
     typer.echo(f"Added device {fqdn} ({address}) to tenant {tenant!r}")
 
 
-@device_app.command("import-inventory")
-def device_import_inventory(
-    path: Path = typer.Argument(..., help="Existing Ansible inventory.yml"),
-    tenant: str = typer.Option(..., help="Tenant slug to attach hosts to."),
-    active_trustpoint: str = typer.Option(
-        "HT-WxCAutoCert", help="Trustpoint currently bound on these devices."
-    ),
-) -> None:
-    """Migrate hosts out of the Ansible inventory."""
-    import yaml
-
-    data = yaml.safe_load(path.read_text())
-    hosts = (
-        data.get("all", {})
-        .get("children", {})
-        .get("voice_gateways", {})
-        .get("hosts", {})
-    ) or {}
-
-    added = 0
-    with session_scope() as session:
-        t = session.exec(select(Tenant).where(Tenant.slug == tenant)).first()
-        if t is None:
-            typer.secho(f"No tenant named {tenant!r}", fg="red")
-            raise typer.Exit(1)
-
-        for hostname, attrs in hosts.items():
-            fqdn = (attrs or {}).get("fqdn")
-            address = (attrs or {}).get("ansible_host")
-            if not fqdn or not address:
-                typer.secho(f"  skipping {hostname}: missing fqdn or ansible_host", fg="yellow")
-                continue
-            if session.exec(select(Device).where(Device.fqdn == fqdn)).first():
-                typer.echo(f"  {fqdn} already present")
-                continue
-            session.add(
-                Device(
-                    tenant_id=t.id,
-                    hostname=hostname,
-                    fqdn=fqdn,
-                    mgmt_address=address,
-                    active_trustpoint=active_trustpoint,
-                )
-            )
-            added += 1
-            typer.echo(f"  imported {fqdn} ({address})")
-
-    typer.echo(f"Imported {added} device(s) into tenant {tenant!r}")
-
-
 # -- operations --------------------------------------------------------------
 
 
@@ -921,48 +871,6 @@ def issue(
     if failed:
         typer.secho(f"\n{failed} device(s) failed.", fg="red")
         raise typer.Exit(1)
-
-
-@app.command("export-p12")
-def export_p12(
-    fqdn: str = typer.Argument(..., help="Device FQDN."),
-    out: Path = typer.Option(None, help="Output path. Defaults to ./<fqdn>.p12"),
-    show_password: bool = typer.Option(
-        False, help="Print the bundle password to stdout."
-    ),
-) -> None:
-    """Write the current .p12 to disk for the Phase 1 Ansible hand-off.
-
-    The password is generated per issuance and never written to device config.
-    """
-    settings = get_settings()
-    box = _box()
-
-    with session_scope() as session:
-        device = session.exec(select(Device).where(Device.fqdn == fqdn)).first()
-        if device is None:
-            typer.secho(f"No device with FQDN {fqdn!r}", fg="red")
-            raise typer.Exit(1)
-        cert = latest_certificate(session, device)
-        if cert is None:
-            typer.secho(f"No certificate on record for {fqdn}", fg="red")
-            raise typer.Exit(1)
-
-        service = IssuanceService(session, settings, box)
-        blob, password = service.export_pkcs12(cert, device)
-        # Read before the session closes.
-        serial = cert.serial
-        target_trustpoint = cert.target_trustpoint
-
-    target = out or Path(f"{fqdn}.p12")
-    target.write_bytes(blob)
-    target.chmod(0o600)
-    typer.echo(f"Wrote {target} ({len(blob)} bytes, serial {serial})")
-    typer.echo(f"Target trustpoint: {target_trustpoint}")
-    if show_password:
-        typer.echo(f"Password: {password}")
-    else:
-        typer.echo("Re-run with --show-password to print the bundle password.")
 
 
 @device_app.command("set-credentials")

@@ -13,7 +13,6 @@ dependencies = [
     "sqlmodel==0.0.39",
     "typer==0.27.1",
     "structlog==26.1.0",
-    "pyyaml==6.0.3",
     "scrapli==2026.2.20",
     "paramiko==3.5.1",
     "scp==0.16.1",
