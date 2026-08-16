@@ -1,6 +1,6 @@
 # Cloudflare Tunnel connectivity overlay (alternative to Twingate).
 #
-#   docker compose -f docker-compose.htac.yml -f docker-compose.cloudflared.yml up -d
+#   docker compose -f docker-compose.yml -f docker-compose.cloudflared.yml up -d
 #
 # Same sidecar shape as the Twingate overlay, and the same reasoning: tunnel
 # privileges stay off the container holding escrowed keys, and connectivity is

@@ -1,8 +1,8 @@
 # Web console + renewal scheduler.
 #
-#   docker compose -f docker-compose.htac.yml up -d --build
-#   docker compose -f docker-compose.htac.yml logs -f
-#   docker compose -f docker-compose.htac.yml run --rm --entrypoint htac htac doctor
+#   docker compose up -d --build
+#   docker compose logs -f
+#   ./htac doctor
 #
 # The container needs routed access to the gateways' management addresses and
 # outbound HTTPS to the ACME CA and the Cloudflare API.
@@ -11,6 +11,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.htac
+      target: runtime
     image: ht-autocert:latest
     # Published on 8866 for autocert.managedcollab.com.
     #
@@ -26,7 +27,8 @@ services:
       # treat the backup with the same care as the master key.
       - htac-data:/srv/data
     env_file:
-      - .env.htac
+      - path: .env.htac
+        required: false
     environment:
       HTAC_DATABASE_URL: sqlite:////srv/data/htac.db
       # Structured logs for whatever collects them on the server.
@@ -48,6 +50,17 @@ services:
     # Nothing here needs to escalate privileges.
     security_opt:
       - no-new-privileges:true
+
+  test:
+    profiles:
+      - test
+    build:
+      context: .
+      dockerfile: Dockerfile.htac
+      target: test
+    image: ht-autocert:test
+    entrypoint: []
+    command: ["sh", "-c", "python -m pytest -q && python -m pyflakes app"]
 
 volumes:
   htac-data:

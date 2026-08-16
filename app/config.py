@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     # 32 bytes, base64. Generate with: openssl rand -base64 32
     master_key: str = Field(default="")
 
-    database_url: str = "sqlite:///./data/htac.db"
+    database_url: str = "sqlite:////srv/data/htac.db"
 
     # Single Cloudflare zone hosting every tenant's gateway FQDNs.
     cloudflare_api_token: str = Field(default="")

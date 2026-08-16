@@ -9,13 +9,8 @@ RUN npm ci --silent
 COPY web/ ./
 RUN npm run build
 
-# --- stage 2: runtime -------------------------------------------------------
-FROM python:3.12-slim
-
-ARG APP_VERSION=2.0.0
-LABEL org.opencontainers.image.title="ht-autocert" \
-      org.opencontainers.image.description="Certificate automation for Cisco IOS-XE gateways" \
-      org.opencontainers.image.version="$APP_VERSION"
+# --- stage 2: Python dependencies -------------------------------------------
+FROM python:3.12-slim AS python-base
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -25,13 +20,27 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /srv
 
-# Dependencies are pinned in pyproject.toml so image builds are reproducible --
-# the Ansible image installed ansible/certbot unpinned on every build.
 COPY pyproject.toml ./
 COPY app ./app
-RUN pip install --no-cache-dir . && \
-    # Nothing installs packages at runtime, so the installer is dead weight.
-    pip uninstall -y pip setuptools wheel 2>/dev/null || true && \
+RUN pip install --no-cache-dir .
+
+# --- stage 3: test ----------------------------------------------------------
+FROM python-base AS test
+
+RUN pip install --no-cache-dir '.[dev]'
+COPY tests ./tests
+ENTRYPOINT ["python", "-m", "pytest"]
+CMD ["-q"]
+
+# --- stage 4: runtime ---------------------------------------------------------
+FROM python-base AS runtime
+
+ARG APP_VERSION=2.0.0
+LABEL org.opencontainers.image.title="ht-autocert" \
+      org.opencontainers.image.description="Certificate automation for Cisco IOS-XE gateways" \
+      org.opencontainers.image.version="$APP_VERSION"
+
+RUN pip uninstall -y pip setuptools wheel 2>/dev/null || true && \
     find /usr/local/lib/python3.12 -name '__pycache__' -type d -prune -exec rm -rf {} + && \
     find /usr/local/lib/python3.12 -name '*.pyc' -delete && \
     useradd --create-home --uid 10001 htac && \

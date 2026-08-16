@@ -1,5 +1,5 @@
 # Public VPS overlay: Caddy obtains and renews TLS certificates automatically.
-# Always combine this file with docker-compose.htac.yml via scripts/vps-deploy.sh.
+# Always combine this file with docker-compose.yml via scripts/vps-deploy.sh.
 services:
   htac:
     expose:

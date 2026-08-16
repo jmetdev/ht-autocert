@@ -1,6 +1,6 @@
 # Twingate connectivity overlay.
 #
-#   docker compose -f docker-compose.htac.yml -f docker-compose.twingate.yml up -d
+#   docker compose -f docker-compose.yml -f docker-compose.twingate.yml up -d
 #
 # The tunnel runs as a SIDECAR and the application joins its network namespace.
 # Two reasons this is better than putting the client inside the app image:

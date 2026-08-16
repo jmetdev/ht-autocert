@@ -157,7 +157,7 @@ def serve(
     dist = Path(__file__).resolve().parent.parent / "web" / "dist"
     if not dist.is_dir():
         typer.secho(f"No built frontend at {dist}", fg="yellow")
-        typer.echo("Build it with:  cd web && npm install && npm run build")
+        typer.echo("The SPA is built into the Docker image. Rebuild with: docker compose build")
         typer.echo("The API will still serve on its own.")
 
     typer.secho(f"Console:   http://{host}:{port}/", fg="green")
