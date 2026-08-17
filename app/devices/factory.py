@@ -110,7 +110,20 @@ class ApiFirstTransport:
             self.ssh.close()
 
     def read_state(self):
-        return self.reader.read_state()
+        try:
+            return self.reader.read_state()
+        except DeviceError as exc:
+            # RESTCONF is preferred, but Catalyst 8200s often have WebUI on 443
+            # without ``restconf`` enabled. Live state already has an SSH path.
+            log.warning(
+                "device.restconf_fallback_ssh",
+                host=self.host,
+                error=str(exc),
+            )
+            if not self._ssh_open:
+                self.ssh.open()
+                self._ssh_open = True
+            return self.ssh.read_state()
 
     def _mutation(self, name, *args, **kwargs):
         if not self._ssh_open:

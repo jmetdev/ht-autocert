@@ -12,7 +12,9 @@ services:
       context: .
       dockerfile: Dockerfile.htac
       target: runtime
-    image: ht-autocert:latest
+    # Local `docker compose up --build` tags this name. GitHub Actions CD sets
+    # HTAC_IMAGE to the GHCR tag it just published so the VPS pulls that image.
+    image: ${HTAC_IMAGE:-ht-autocert:latest}
     # Published on 8866 for autocert.managedcollab.com.
     #
     # Bound to loopback by default: the expectation is that a tunnel or reverse

@@ -24,6 +24,22 @@ OPER_PATH = (
 SIP_UA_PATH = "/restconf/data/Cisco-IOS-XE-native:native/sip-ua/crypto/signaling"
 
 
+def _is_webui_html(response: httpx.Response) -> bool:
+    """True when HTTPS is Cisco WebUI, not RESTCONF.
+
+    RESTCONF 404s are ``application/yang-data+json`` with ietf-restconf:errors.
+    An HTML 404 from openresty means the ``restconf`` feature is not enabled.
+    """
+    ctype = (response.headers.get("content-type") or "").lower()
+    if "html" in ctype:
+        return True
+    server = (response.headers.get("server") or "").lower()
+    if "openresty" in server or "cisco" in server:
+        return True
+    body = response.text.lstrip()[:32].lower()
+    return body.startswith("<!doctype") or body.startswith("<html")
+
+
 def _parse_timestamp(value: str | None) -> datetime | None:
     if not value:
         return None
@@ -78,7 +94,12 @@ class RestconfReader:
             raise DeviceError(f"{self.host}: RESTCONF request failed: {exc}") from exc
 
         if response.status_code == 404:
-            # Model not present on this train; caller should fall back to CLI.
+            if _is_webui_html(response):
+                server = response.headers.get("server") or "http"
+                raise DeviceError(
+                    f"{self.host}: RESTCONF is not enabled ({server} returned "
+                    "HTML 404 for /restconf). Enable it with: restconf"
+                )
             raise DeviceError(
                 f"{self.host}: crypto-pki-oper model not available (HTTP 404)"
             )

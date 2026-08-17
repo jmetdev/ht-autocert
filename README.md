@@ -345,6 +345,27 @@ the SQLite datastore and Caddy state across rebuilds. Back up `htac-data` and
 store `HTAC_MASTER_KEY` separately; neither is useful for recovery without the
 other.
 
+If the host already has Nginx Proxy Manager (or another reverse proxy) on 80/443,
+do not use `scripts/vps-deploy.sh` — that overlay starts Caddy on those ports.
+Keep the app on loopback (`HTAC_BIND=127.0.0.1`) and proxy to port 8866.
+
+### GitHub Actions (build and deploy)
+
+Pushes to `main` run three jobs:
+
+1. **test** on GitHub-hosted runners (`docker compose --profile test` plus an image build)
+2. **publish** the runtime image to `ghcr.io/<owner>/ht-autocert` (`latest` and `sha-<commit>`)
+3. **deploy** on a self-hosted runner labeled `htac` at `/opt/ht-autocert`. It
+   resets the checkout to `origin/main`, pulls that commit's image, migrates,
+   and restarts. Pull requests never run on that runner.
+
+GitHub-hosted runners cannot reach this VPS, so deploy is not SSH from
+`ubuntu-latest`. The runner user needs Docker and write access to
+`/opt/ht-autocert`. Local `docker compose up --build` still tags
+`ht-autocert:latest` unless `HTAC_IMAGE` is set. Install the runner once as
+root with `RUNNER_TOKEN=<token> ./scripts/install-github-runner.sh` (token from
+GitHub → Settings → Actions → Runners).
+
 ### Before it will reach your gateways
 
 A container has no `~/.ssh/known_hosts`, so strict host key checking fails for

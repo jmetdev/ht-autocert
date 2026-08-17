@@ -97,6 +97,55 @@ def test_missing_model_raises_so_caller_can_fall_back_to_cli():
         _reader(handler).read_state()
 
 
+def test_webui_html_404_means_restconf_is_not_enabled():
+    def handler(request):
+        return httpx.Response(
+            404,
+            headers={"Content-Type": "text/html", "Server": "openresty"},
+            text="<html><head><title>404 Not Found</title></head></html>",
+        )
+
+    with pytest.raises(DeviceError, match="RESTCONF is not enabled"):
+        _reader(handler).read_state()
+
+
+def test_api_first_transport_falls_back_to_ssh_when_restconf_missing():
+    from app.devices.base import DeviceState, TrustpointState
+    from app.devices.factory import ApiFirstTransport
+
+    def handler(request):
+        return httpx.Response(
+            404,
+            headers={"Content-Type": "text/html", "Server": "openresty"},
+            text="<html><h1>404 Not Found</h1></html>",
+        )
+
+    class FakeSsh:
+        def __init__(self):
+            self.opened = False
+            self.host_key = None
+            self.host = "device.invalid"
+            self.strict_host_key = True
+
+        def open(self):
+            self.opened = True
+
+        def close(self):
+            pass
+
+        def read_state(self):
+            return DeviceState(
+                trustpoints={"TP": TrustpointState(label="TP", has_certificate=False)},
+                bound_trustpoint=None,
+            )
+
+    ssh = FakeSsh()
+    transport = ApiFirstTransport(_reader(handler), ssh)
+    state = transport.read_state()
+    assert ssh.opened is True
+    assert "TP" in state.trustpoints
+
+
 def test_http_error_is_surfaced():
     def handler(request):
         return httpx.Response(401, json={})
