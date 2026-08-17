@@ -8,11 +8,57 @@ identical to one that worked.
 
 from datetime import datetime
 from dataclasses import dataclass, field
+from ipaddress import ip_address
 from typing import Protocol
 
 
 class DeviceError(RuntimeError):
     """A device operation failed. Message is expected to reach an operator."""
+
+
+def is_ip_address(value: str) -> bool:
+    try:
+        ip_address(value.strip())
+        return True
+    except ValueError:
+        return False
+
+
+def management_host(mgmt_address: str | None, fqdn: str | None) -> str | None:
+    """Host used for SSH/RESTCONF.
+
+    The certificate FQDN is an ACME name. It has no A record and must not be
+    treated as a reachable management address.
+    """
+    addr = (mgmt_address or "").strip()
+    if not addr:
+        return None
+    if fqdn and addr.lower().rstrip(".") == fqdn.lower().rstrip("."):
+        return None
+    return addr
+
+
+def mgmt_from_discovery(webex_address: str | None, cert_fqdn: str) -> str:
+    """Copy a Webex trunk address only when it is an IP.
+
+    Certificate-based trunks store the SIP/certificate hostname in ``address``.
+    That name is for ACME, not IOS management.
+    """
+    addr = (webex_address or "").strip()
+    if addr and is_ip_address(addr):
+        return addr
+    return ""
+
+
+def require_management_host(mgmt_address: str | None, fqdn: str) -> str:
+    host = management_host(mgmt_address, fqdn)
+    if host:
+        return host
+    raise DeviceError(
+        f"{fqdn}: no management IP set. The certificate FQDN is for ACME only "
+        "and is not a reachable host. Set one with: "
+        f"./htac device set-address {fqdn} --address <ip>"
+    )
 
 
 class VerificationError(DeviceError):

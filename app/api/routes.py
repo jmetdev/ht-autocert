@@ -40,7 +40,7 @@ from app.api.schemas import (
 from app.config import Settings
 from app.db.models import AuditEvent, CAProfile, Device, RunLog, Tenant
 from app.deployment import DeploymentService
-from app.devices.base import DeviceError
+from app.devices.base import DeviceError, management_host, mgmt_from_discovery
 from app.devices.factory import build_transport
 from app.issuance import IssuanceService, latest_certificate
 from app.vault import SecretBox
@@ -134,6 +134,33 @@ def get_device(
     return device_view(session, device, settings, detail=True)
 
 
+@router.put("/devices/{fqdn}/address", response_model=DeviceDetailOut)
+def set_device_address(
+    fqdn: str,
+    address: str = Query(..., description="Reachable IOS management IP or internal hostname."),
+    principal=Depends(require_operator),
+    session: Session = Depends(get_session),
+    settings: Settings = Depends(get_config),
+) -> DeviceDetailOut:
+    """Set the management address used for RESTCONF and SSH."""
+    device = get_device_or_404(session, fqdn)
+    host = management_host(address, fqdn)
+    if not host:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Management address must be a reachable IP (or internal hostname), "
+                "not the certificate FQDN used for ACME."
+            ),
+        )
+    device.mgmt_address = host
+    session.add(device)
+    session.commit()
+    session.refresh(device)
+    log.info("device.mgmt_address_set", actor=principal.actor, fqdn=fqdn, address=host)
+    return device_view(session, device, settings, detail=True)
+
+
 @router.get("/tenants", response_model=list[TenantOut])
 def list_tenants(session: Session = Depends(get_session)) -> list[TenantOut]:
     out = []
@@ -223,6 +250,16 @@ def device_live_state(
 ) -> DeviceLiveStateOut:
     """Read certificate state directly from the gateway."""
     device = get_device_or_404(session, fqdn)
+    host = management_host(device.mgmt_address, device.fqdn)
+    if not host:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"{fqdn}: no management IP set. The certificate FQDN is for ACME "
+                "only and has no A record. Set the IOS management IP with "
+                f"./htac device set-address {fqdn} --address <ip>"
+            ),
+        )
     try:
         with build_transport(session, device, box) as transport:
             state = transport.read_state()
@@ -506,11 +543,9 @@ def webex_import(
                     tenant_id=t.id,
                     hostname=gw.name,
                     fqdn=fqdn,
-                    # Webex has no management address for a registering trunk.
-                    # Seed it with the certificate name so the row is complete,
-                    # and leave the device disabled until an operator confirms
-                    # how the gateway is actually reached.
-                    mgmt_address=gw.address or fqdn,
+                    # Certificate FQDNs are ACME names, not management hosts.
+                    # Only an IP from Webex is stored; otherwise leave unset.
+                    mgmt_address=mgmt_from_discovery(gw.address, fqdn),
                     enabled=False,
                 )
             )

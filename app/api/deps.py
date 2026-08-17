@@ -10,6 +10,7 @@ from app.api.schemas import CertificateOut, DeviceOut
 from app.config import Settings, get_settings
 from app.db.models import CAProfile, CertStatus, Certificate, Device, Role, Tenant
 from app.db.session import get_engine
+from app.devices.base import management_host
 from app.issuance import latest_certificate, needs_renewal, renewal_threshold
 from app.vault import SecretBox
 
@@ -157,11 +158,14 @@ def device_view(
     )
     has_username = bool(device.username or (tenant and tenant.default_username))
 
+    host = management_host(device.mgmt_address, device.fqdn)
+
     payload = dict(
         id=device.id,
         hostname=device.hostname,
         fqdn=device.fqdn,
-        mgmt_address=device.mgmt_address,
+        mgmt_address=host or "",
+        has_mgmt_address=host is not None,
         tenant_slug=tenant.slug if tenant else "",
         tenant_name=tenant.name if tenant else "",
         enabled=device.enabled,

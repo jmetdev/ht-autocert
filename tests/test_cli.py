@@ -154,3 +154,36 @@ def test_unforced_issue_is_not_gated():
     _seed_with_device("le-prod")
     result = runner.invoke(app, ["issue", "--dry-run"])
     assert "production CA" not in result.output
+
+
+def test_device_add_rejects_the_certificate_fqdn_as_address():
+    _seed()
+    result = _run(
+        "device", "add", "--tenant", "husd", "--hostname", "vg01",
+        "--fqdn", "vg01.husd.clients.example.com",
+        "--address", "vg01.husd.clients.example.com",
+    )
+    assert result.exit_code != 0
+    assert "not the certificate FQDN" in result.output
+
+
+def test_set_address_persists_without_detaching():
+    _seed_with_device("le-staging")
+    result = _run(
+        "device", "set-address", "vg01.husd.clients.example.com",
+        "--address", "10.40.8.10",
+    )
+    assert result.exit_code == 0, result.output
+    assert "DetachedInstanceError" not in result.output
+    assert "10.40.8.10" in result.output
+
+    from sqlmodel import select
+
+    from app.db.models import Device
+    from app.db.session import session_scope
+
+    with session_scope() as session:
+        device = session.exec(
+            select(Device).where(Device.fqdn == "vg01.husd.clients.example.com")
+        ).first()
+        assert device.mgmt_address == "10.40.8.10"

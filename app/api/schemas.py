@@ -64,6 +64,7 @@ class DeviceOut(BaseModel):
     hostname: str
     fqdn: str
     mgmt_address: str
+    has_mgmt_address: bool
     tenant_slug: str
     tenant_name: str
     enabled: bool

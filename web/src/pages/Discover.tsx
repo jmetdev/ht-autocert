@@ -269,12 +269,12 @@ export function DiscoverPage({ identity }: { identity: Identity | null }) {
 
       {result?.applied && result.imported > 0 && (
         <Alert color="blue" icon={<IconInfoCircle size={16} />} title="Imported devices are disabled">
-          Control Hub knows a trunk&rsquo;s name but never its management
-          address, SSH host key or credentials, so these are worklist entries
-          rather than deployable devices. The renewal scheduler skips disabled
-          devices, so nothing will act on them until you finish and enable each
-          one:
+          Control Hub knows a trunk&rsquo;s certificate name, but that FQDN is
+          for ACME only — it has no A record and is not the IOS management IP.
+          Imported devices stay disabled until you set the management IP, pin
+          the SSH host key, and add credentials:
           <Code block mt="xs">
+            ./htac device set-address &lt;fqdn&gt; --address &lt;mgmt-ip&gt;{'\n'}
             ./htac device trust &lt;fqdn&gt;{'\n'}
             ./htac device set-credentials &lt;fqdn&gt;
           </Code>

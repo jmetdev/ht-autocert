@@ -65,6 +65,7 @@ export interface Device {
   hostname: string;
   fqdn: string;
   mgmt_address: string;
+  has_mgmt_address: boolean;
   tenant_slug: string;
   tenant_name: string;
   enabled: boolean;
@@ -252,6 +253,12 @@ export const api = {
   },
   device: (fqdn: string) => request<DeviceDetail>(`/api/devices/${fqdn}`),
   liveState: (fqdn: string) => request<LiveState>(`/api/devices/${fqdn}/live`),
+  setAddress: (fqdn: string, address: string) => {
+    const query = new URLSearchParams({ address });
+    return request<DeviceDetail>(`/api/devices/${fqdn}/address?${query}`, {
+      method: 'PUT',
+    });
+  },
   tenants: () => request<Tenant[]>('/api/tenants'),
   caProfiles: () => request<CAProfile[]>('/api/ca-profiles'),
   runs: (fqdn?: string) =>

@@ -193,3 +193,13 @@ def test_tenant_without_a_ca_profile_is_warned_about(fleet):
 
     report = run_checks(session, _settings())
     assert _status(report, "tenant CA profiles") == WARN
+
+
+def test_certificate_fqdn_as_mgmt_address_is_warned_about(fleet):
+    session, _, device = fleet
+    device.mgmt_address = device.fqdn
+    session.add(device)
+    session.commit()
+
+    report = run_checks(session, _settings())
+    assert _status(report, "management addresses") == WARN

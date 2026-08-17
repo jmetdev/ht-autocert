@@ -235,6 +235,33 @@ def test_live_state_surfaces_device_errors_as_502(client, monkeypatch):
     assert "connection refused" in response.json()["detail"]
 
 
+def test_live_state_refuses_the_certificate_fqdn_as_a_host(client, seeded):
+    from sqlmodel import select
+
+    from app.db.models import Device as D
+
+    device = seeded.exec(select(D).where(D.fqdn == CN)).first()
+    device.mgmt_address = CN
+    seeded.add(device)
+    seeded.commit()
+
+    response = client.get(f"/api/devices/{CN}/live")
+    assert response.status_code == 409
+    assert "no management IP" in response.json()["detail"]
+    assert "ACME" in response.json()["detail"]
+
+
+def test_set_address_stores_an_ip_and_rejects_the_cert_fqdn(client, seeded):
+    bad = client.put(f"/api/devices/{CN}/address?address={CN}")
+    assert bad.status_code == 400
+
+    ok = client.put(f"/api/devices/{CN}/address?address=10.40.8.10")
+    assert ok.status_code == 200
+    body = ok.json()
+    assert body["mgmt_address"] == "10.40.8.10"
+    assert body["has_mgmt_address"] is True
+
+
 # -- Webex discovery ---------------------------------------------------------
 
 
@@ -352,6 +379,11 @@ def test_imported_devices_are_disabled_so_the_scheduler_skips_them(client, webex
     created = seeded.exec(select(D).where(D.hostname == "HQ CUBE")).first()
     assert created is not None
     assert created.enabled is False
+    # Webex stored the SIP/certificate hostname, not an IOS management IP.
+    assert created.mgmt_address == ""
+    registering = seeded.exec(select(D).where(D.hostname == "Dual Reg - VG400")).first()
+    assert registering is not None
+    assert registering.mgmt_address == ""
 
 
 def test_import_is_idempotent(client, webex):

@@ -4,7 +4,7 @@ import structlog
 from sqlmodel import Session
 
 from app.db.models import Device, Tenant
-from app.devices.base import DeviceError
+from app.devices.base import DeviceError, require_management_host
 from app.devices.ssh import IosXeSshTransport
 from app.devices.restconf import RestconfReader
 from app.vault import SecretBox
@@ -127,6 +127,7 @@ class ApiFirstTransport:
 
 def build_transport(session: Session, device: Device, box: SecretBox):
     username, password, enable_password = resolve_credentials(session, device, box)
+    host = require_management_host(device.mgmt_address, device.fqdn)
     if device.strict_host_key and not device.ssh_host_key:
         log.warning(
             "device.no_pinned_host_key",
@@ -134,7 +135,7 @@ def build_transport(session: Session, device: Device, box: SecretBox):
             hint=f"./htac device trust {device.fqdn}",
         )
     ssh = IosXeSshTransport(
-        host=device.mgmt_address,
+        host=host,
         username=username,
         password=password,
         enable_password=enable_password,
@@ -147,7 +148,7 @@ def build_transport(session: Session, device: Device, box: SecretBox):
         return ssh
     return ApiFirstTransport(
         RestconfReader(
-            device.mgmt_address, username, password, port=device.restconf_port
+            host, username, password, port=device.restconf_port
         ),
         ssh,
     )

@@ -16,6 +16,7 @@ import {
   Switch,
   Table,
   Text,
+  TextInput,
   Title,
   Tooltip,
 } from '@mantine/core';
@@ -60,6 +61,7 @@ export function DeviceDetailPage({ identity }: { identity: Identity | null }) {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [rebind, setRebind] = useState(true);
+  const [mgmtAddress, setMgmtAddress] = useState('');
   const [confirmOpened, { open: openConfirm, close: closeConfirm }] = useDisclosure();
   const [steps, setSteps] = useState<string[]>([]);
 
@@ -67,7 +69,10 @@ export function DeviceDetailPage({ identity }: { identity: Identity | null }) {
     setLoading(true);
     api
       .device(fqdn)
-      .then(setDevice)
+      .then((d) => {
+        setDevice(d);
+        setMgmtAddress(d.mgmt_address);
+      })
       .catch((err) => notifications.show({ color: 'red', message: err.message }))
       .finally(() => setLoading(false));
   }, [fqdn]);
@@ -93,6 +98,23 @@ export function DeviceDetailPage({ identity }: { identity: Identity | null }) {
         message: result.detail,
       });
       load();
+    } catch (err) {
+      notifications.show({ color: 'red', message: (err as Error).message });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const saveMgmt = async () => {
+    setBusy(true);
+    try {
+      const updated = await api.setAddress(fqdn, mgmtAddress);
+      setDevice(updated);
+      setMgmtAddress(updated.mgmt_address);
+      notifications.show({
+        color: 'green',
+        message: `Management address set to ${updated.mgmt_address}`,
+      });
     } catch (err) {
       notifications.show({ color: 'red', message: (err as Error).message });
     } finally {
@@ -148,7 +170,8 @@ export function DeviceDetailPage({ identity }: { identity: Identity | null }) {
         <div>
           <Title order={2}>{device.fqdn}</Title>
           <Text c="dimmed" size="sm">
-            {device.tenant_name} · {device.mgmt_address}
+            {device.tenant_name}
+            {device.has_mgmt_address ? ` · ${device.mgmt_address}` : ' · no management IP'}
           </Text>
         </div>
         <Group>
@@ -157,6 +180,14 @@ export function DeviceDetailPage({ identity }: { identity: Identity | null }) {
         </Group>
       </Group>
 
+      {!device.has_mgmt_address && (
+        <Alert color="orange" icon={<IconAlertTriangle size={16} />}>
+          No management IP. The certificate FQDN is for ACME DNS-01 only and has
+          no A record, so live state, SSH and RESTCONF cannot use it. Set the
+          IOS management address below (reachable via Twingate).
+        </Alert>
+      )}
+
       {!device.has_credentials && (
         <Alert color="yellow" icon={<IconAlertTriangle size={16} />}>
           No SSH credentials are set for this gateway or its tenant, so deployment
@@ -164,6 +195,33 @@ export function DeviceDetailPage({ identity }: { identity: Identity | null }) {
           <Code>htac device set-credentials {device.fqdn}</Code>.
         </Alert>
       )}
+
+      <Paper withBorder p="md">
+        <Stack gap="sm">
+          <Text fw={600}>Management address</Text>
+          <Text size="xs" c="dimmed">
+            Reachable IOS IP (or internal hostname). Distinct from the
+            certificate FQDN used for ACME.
+          </Text>
+          <Group align="flex-end">
+            <TextInput
+              label="IOS management IP"
+              placeholder="10.x.x.x"
+              value={mgmtAddress}
+              onChange={(event) => setMgmtAddress(event.currentTarget.value)}
+              w={280}
+              disabled={!canOperate}
+            />
+            <Button
+              onClick={saveMgmt}
+              loading={busy}
+              disabled={!canOperate || !mgmtAddress.trim()}
+            >
+              Save
+            </Button>
+          </Group>
+        </Stack>
+      </Paper>
 
       <SimpleGrid cols={{ base: 1, md: 2 }}>
         <Card withBorder>

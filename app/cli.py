@@ -15,6 +15,7 @@ from sqlmodel import select
 from app.config import get_settings
 from app.db.models import CAProfile, Device, Pkcs12Profile, Tenant
 from app.db.session import init_db, session_scope
+from app.devices.base import management_host, mgmt_from_discovery
 from app.issuance import IssuanceService, latest_certificate, needs_renewal
 from app.logging import configure_logging
 from app.vault import SecretBox, aad_eab
@@ -491,7 +492,7 @@ def webex_import(
                     tenant_id=t.id,
                     hostname=gw.name,
                     fqdn=fqdn,
-                    mgmt_address=gw.address or fqdn,
+                    mgmt_address=mgmt_from_discovery(gw.address, fqdn),
                     enabled=False,
                 )
             )
@@ -502,7 +503,10 @@ def webex_import(
             "from Webex. Confirm each one before enabling.",
             fg="yellow",
         )
-    typer.echo("Next: ./htac device trust <fqdn>  and  ./htac device set-credentials <fqdn>")
+    typer.echo(
+        "Next: ./htac device set-address <fqdn> --address <mgmt-ip>  "
+        "then  ./htac device trust <fqdn>  and  ./htac device set-credentials <fqdn>"
+    )
 
 
 def _slug(name: str) -> str:
@@ -753,6 +757,14 @@ def device_add(
         if t is None:
             typer.secho(f"No tenant named {tenant!r}", fg="red")
             raise typer.Exit(1)
+        if not management_host(address, fqdn):
+            typer.secho(
+                "Management address must be the gateway's reachable IP (or an "
+                "internal hostname), not the certificate FQDN. That name is for "
+                "ACME only and has no A record.",
+                fg="red",
+            )
+            raise typer.Exit(1)
         session.add(
             Device(
                 tenant_id=t.id,
@@ -903,6 +915,35 @@ def device_set_credentials(
     typer.echo(f"Credentials stored for {fqdn}")
 
 
+@device_app.command("set-address")
+def device_set_address(
+    fqdn: str = typer.Argument(..., help="Device FQDN (certificate name)."),
+    address: str = typer.Option(..., help="Reachable management IP or internal hostname."),
+) -> None:
+    """Set the IOS management address used for RESTCONF and SSH.
+
+    Distinct from the certificate FQDN, which exists only for ACME DNS-01 and
+    has no A record.
+    """
+    host = management_host(address, fqdn)
+    if not host:
+        typer.secho(
+            "Management address must be a reachable IP (or internal hostname), "
+            "not the certificate FQDN.",
+            fg="red",
+        )
+        raise typer.Exit(1)
+    with session_scope() as session:
+        device = session.exec(select(Device).where(Device.fqdn == fqdn)).first()
+        if device is None:
+            typer.secho(f"No device with FQDN {fqdn!r}", fg="red")
+            raise typer.Exit(1)
+        previous = management_host(device.mgmt_address, device.fqdn) or "(none)"
+        device.mgmt_address = host
+        session.add(device)
+    typer.echo(f"{fqdn}: {previous} -> {host}")
+
+
 @tenant_app.command("set-credentials")
 def tenant_set_credentials(
     slug: str = typer.Argument(..., help="Tenant slug."),
@@ -976,8 +1017,16 @@ def device_trust(
         if device is None:
             typer.secho(f"No device with FQDN {fqdn!r}", fg="red")
             raise typer.Exit(1)
-        address, port = device.mgmt_address, device.ssh_port
+        address, port = management_host(device.mgmt_address, device.fqdn), device.ssh_port
         existing = device.ssh_host_key
+
+    if not address:
+        typer.secho(
+            f"{fqdn}: no management IP set. The certificate FQDN is for ACME "
+            f"only. Set one with: ./htac device set-address {fqdn} --address <ip>",
+            fg="red",
+        )
+        raise typer.Exit(1)
 
     try:
         line, key_type, fingerprint = fetch_host_key(address, port)
@@ -1016,6 +1065,7 @@ def device_inspect(
     fqdn: str = typer.Argument(..., help="Device FQDN."),
 ) -> None:
     """Read live certificate state from a gateway."""
+    from app.devices.base import DeviceError
     from app.devices.factory import build_transport
 
     box = _box()
@@ -1025,8 +1075,12 @@ def device_inspect(
             typer.secho(f"No device with FQDN {fqdn!r}", fg="red")
             raise typer.Exit(1)
 
-        with build_transport(session, device, box) as transport:
-            state = transport.read_state()
+        try:
+            with build_transport(session, device, box) as transport:
+                state = transport.read_state()
+        except DeviceError as exc:
+            typer.secho(str(exc), fg="red")
+            raise typer.Exit(1) from exc
 
     typer.echo(f"Bound trustpoint: {state.bound_trustpoint or '(none)'}")
     if not state.trustpoints:

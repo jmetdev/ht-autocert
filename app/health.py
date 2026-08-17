@@ -13,6 +13,7 @@ from sqlmodel import Session, select
 from app.config import Settings
 from app.db.models import CAProfile, Certificate, Device, Tenant
 from app.devices.factory import aad_device_secret, aad_tenant_secret
+from app.devices.base import management_host
 from app.vault import (
     SecretBox,
     VaultError,
@@ -183,6 +184,21 @@ def run_checks(session: Session, settings: Settings) -> Report:
     elif devices:
         report.checks.append(
             Check("device credentials", OK, f"all {len(devices)} device(s) configured")
+        )
+
+    no_mgmt = [d.fqdn for d in devices if management_host(d.mgmt_address, d.fqdn) is None]
+    if no_mgmt:
+        report.checks.append(
+            Check(
+                "management addresses", WARN,
+                f"{len(no_mgmt)} device(s) have no management IP "
+                "(certificate FQDN is ACME-only)",
+                "./htac device set-address <fqdn> --address <ip>",
+            )
+        )
+    elif devices:
+        report.checks.append(
+            Check("management addresses", OK, f"all {len(devices)} device(s) have a management IP")
         )
 
     unpinned = [

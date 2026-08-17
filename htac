@@ -16,11 +16,16 @@ if [ -t 0 ] && [ -t 1 ]; then
   tty_flags=(-t)
 fi
 
+# -t is a compose exec/run flag and must sit before the service name.
+# Appending it after "$@" made an interactive shell fail with
+# "No such option: -t" on every htac command.
 run_cli() {
+  local subcmd="$1"
+  shift
   if ((${#tty_flags[@]})); then
-    htac_compose "$@" "${tty_flags[@]}"
+    htac_compose "$subcmd" "${tty_flags[@]}" "$@"
   else
-    htac_compose "$@"
+    htac_compose "$subcmd" "$@"
   fi
 }
 
