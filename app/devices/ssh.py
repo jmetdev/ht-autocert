@@ -1,6 +1,6 @@
 """IOS-XE transport over SSH (scrapli).
 
-PKCS12 bundles are pulled by the gateway over HTTP (``copy http://...``) rather
+PKCS12 bundles are pulled by the gateway over HTTPS (``copy https://...``) rather
 than pushed with SCP, which needs ``ip scp server enable`` and is a frequent
 source of transfer failures. Driving ``crypto pki import`` over SSH means the
 PKCS12 password lives only in the session -- it is never rendered into
@@ -205,11 +205,13 @@ class IosXeSshTransport:
         return state
 
     def fetch_file(self, url: str, remote_name: str) -> None:
-        """Have the gateway download a file over HTTP onto flash.
+        """Have the gateway download a file over HTTPS onto flash.
 
         ``file prompt quiet`` suppresses the destination-filename confirmation
         so a fully-specified ``copy <url> <dest>`` returns to the exec prompt.
-        The prompt mode is restored afterwards.
+        The prompt mode is restored afterwards. The origin must be HTTPS:
+        Cloudflare Tunnel does not publish plaintext HTTP, and IOS will not
+        follow a redirect.
         """
         dest = self._remote_path(remote_name)
         self._send_interactive(

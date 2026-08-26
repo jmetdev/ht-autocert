@@ -76,7 +76,7 @@ def create_app() -> FastAPI:
 
     @app.get("/bundle/{token}", include_in_schema=False)
     def download_bundle(token: str):
-        """Unauthenticated one-shot PKCS12 fetch for IOS-XE ``copy http://``.
+        """Unauthenticated one-shot PKCS12 fetch for IOS-XE ``copy https://``.
 
         The token is the credential. Gateways cannot send a session cookie.
         """

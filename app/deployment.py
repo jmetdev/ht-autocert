@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 import structlog
 from sqlmodel import Session
 
+from app.config import normalize_public_base_url
 from app.db.models import (
     AuditEvent,
     CertStatus,
@@ -119,7 +120,7 @@ class Deployer:
         if not bundle_url:
             raise DeviceError(
                 f"{fqdn}: no bundle URL; set HTAC_PUBLIC_BASE_URL so the "
-                "gateway can download the PKCS12 over HTTP"
+                "gateway can download the PKCS12 over HTTPS"
             )
         self.transport.fetch_file(bundle_url, self.remote_filename)
         self._step(f"fetched {self.remote_filename} over HTTP")
@@ -288,7 +289,7 @@ class DeploymentService:
         self.session = session
         self.box = box
         self.transport_factory = transport_factory
-        self.public_base_url = public_base_url.rstrip("/")
+        self.public_base_url = normalize_public_base_url(public_base_url)
 
     def deploy_device(
         self,

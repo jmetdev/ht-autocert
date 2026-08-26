@@ -391,9 +391,12 @@ Deployment no longer SCPs the bundle onto the gateway. The console stages the
 copy https://<HTAC_PUBLIC_BASE_URL>/bundle/<token> bootflash:htautocert.p12
 ```
 
-Set `HTAC_PUBLIC_BASE_URL` to an origin the voice gateways can reach (often the
-same public HTTPS hostname as the console). The token *is* the credential;
-there is no session cookie on that path.
+Set `HTAC_PUBLIC_BASE_URL` to the console's **HTTPS** origin (the same hostname
+as the Cloudflare Tunnel). The tunnel does not publish plaintext HTTP, and
+IOS-XE `copy` will not follow an HTTP→HTTPS redirect. The token *is* the
+credential; there is no session cookie on that path. The gateway HTTP client
+must trust the origin certificate (often Let's Encrypt / Google Trust
+Services via Cloudflare).
 
 ### Moving an existing datastore into the volume
 
