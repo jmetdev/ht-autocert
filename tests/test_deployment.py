@@ -201,13 +201,26 @@ def test_bundle_is_cleaned_up_even_on_failure():
 
 
 def test_never_deploys_into_the_bound_trustpoint():
-    """Guards against stored state drifting from device state."""
+    """If stored idle is the live sip-ua trustpoint, import the other slot."""
     t = FakeTransport(bound="HT-WxCAutoCert-B")
 
-    with pytest.raises(DeviceError, match="currently bound"):
-        run(t, idle="HT-WxCAutoCert-B")
+    result = run(t, idle="HT-WxCAutoCert-B")
 
-    assert "fetch_file" not in t.names()
+    assert result.status == "deployed"
+    assert ("import_pkcs12", "HT-WxCAutoCert-A", "htautocert.p12") in t.calls
+    assert ("import_pkcs12", "HT-WxCAutoCert-B", "htautocert.p12") not in t.calls
+    assert t.bound == "HT-WxCAutoCert-A"
+
+
+def test_first_deploy_uses_b_when_gateway_already_has_a_bound():
+    """Control Hub / Ansible gateways often already bind A; stored active is empty."""
+    t = FakeTransport(bound="HT-WxCAutoCert-A")
+
+    result = run(t, idle="HT-WxCAutoCert-A")
+
+    assert result.status == "deployed"
+    assert ("import_pkcs12", "HT-WxCAutoCert-B", "htautocert.p12") in t.calls
+    assert t.bound == "HT-WxCAutoCert-B"
 
 
 def test_idle_trustpoint_is_cleared_only_when_it_exists():

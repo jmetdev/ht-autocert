@@ -97,17 +97,19 @@ class Deployer:
         subject_cn: str,
         serial: str,
         idle_trustpoint: str,
+        trustpoint_a: str = "HT-WxCAutoCert-A",
+        trustpoint_b: str = "HT-WxCAutoCert-B",
     ) -> DeploymentResult:
         state = self.transport.read_state()
         previous = state.bound_trustpoint
         self._step(f"read device state (bound={previous or 'none'})")
 
-        if previous == idle_trustpoint:
-            raise DeviceError(
-                f"{fqdn}: refusing to deploy into {idle_trustpoint}, which is the "
-                "trustpoint currently bound in 'sip-ua crypto signaling'. Device "
-                "state and stored state disagree; reconcile before deploying."
+        if previous and previous == idle_trustpoint:
+            other = trustpoint_b if idle_trustpoint == trustpoint_a else trustpoint_a
+            self._step(
+                f"stored idle {idle_trustpoint} is live-bound; importing into {other}"
             )
+            idle_trustpoint = other
 
         already = state.get(idle_trustpoint)
         if already and already.matches(subject_cn, serial):
@@ -346,6 +348,8 @@ class DeploymentService:
                     subject_cn=cert.subject_cn,
                     serial=cert.serial,
                     idle_trustpoint=idle,
+                    trustpoint_a=device.trustpoint_a,
+                    trustpoint_b=device.trustpoint_b,
                 )
         except Exception as exc:  # noqa: BLE001 - recorded, not swallowed
             bound.error("deploy.failed", error=str(exc))
