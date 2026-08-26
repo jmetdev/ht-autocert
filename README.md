@@ -171,11 +171,16 @@ carry no CRL distribution point IOS can use, so peer validation against that
 trustpoint can fail. `revocation-check none` is the usual setting for an
 LE-issued identity trustpoint. Phase 2 manages this as asserted config.
 
-**3. Which chain your devices should carry.** Let's Encrypt is migrating from
-ISRG Root X1 to ISRG Root YR — the `YR2.txt` / `YR_ISRG.txt` files in your
-Downloads are the new intermediate and root. Set `--preferred-chain` on the CA
-profile once you know which root Webex trusts. Every issued certificate records
-the chain that shipped, so a rollover is visible in `./htac status`.
+**3. Which chain your devices should carry.** Let's Encrypt now issues from
+Generation Y (YR1/YR2 under Root YR). The default ACME chain is
+`EE ← YR ← Root YR (cross-signed by ISRG Root X1)` — it includes the YR
+cross-sign but **not** the X1 root certificate, because browsers already have
+X1. Cisco `crypto pki import` of a PKCS12 does not: without X1 in the bag the
+gateway only has YR. Set `--preferred-chain "ISRG Root X1"` on the CA profile;
+issuance selects that path and **appends ISRG Root X1** to the stored chain and
+the `.p12`. Re-issue after this change so existing bundles pick it up. Every
+issued certificate records the chain that shipped, so a rollover is visible in
+`./htac status`.
 
 ---
 

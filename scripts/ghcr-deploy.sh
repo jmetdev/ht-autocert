@@ -24,7 +24,9 @@ fi
 
 printf 'Deploying %s\n' "$IMAGE"
 htac_compose pull htac
-htac_compose run --rm --no-deps --no-build --entrypoint htac htac migrate
+# Compose v2 `run` has no --no-build (v5.x on the VPS rejects it). The image
+# was just pulled, so `run` uses that tag; `up --no-build` skips a rebuild.
+htac_compose run --rm --no-deps --entrypoint htac htac migrate
 htac_compose up -d --no-build --pull never --remove-orphans
 htac_compose ps
 

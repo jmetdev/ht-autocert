@@ -30,6 +30,7 @@ from cryptography.hazmat.primitives.serialization import (
     pkcs12,
 )
 
+from app.ca.trust_anchors import complete_chain
 from app.db.models import Pkcs12Profile
 
 # Alphanumeric only: the value is typed into an IOS-XE exec command, where
@@ -62,9 +63,15 @@ def build_pkcs12(
     password: str,
     profile: Pkcs12Profile = Pkcs12Profile.modern,
 ) -> bytes:
-    """Package key + leaf + intermediates into a .p12 for ``crypto pki import``."""
+    """Package key + leaf + intermediates + trust anchor into a .p12.
+
+    ACME fullchains usually omit the root. ``complete_chain`` appends a bundled
+    ISRG root when the last cert is issued by one, so ``crypto pki import``
+    gets a chain IOS can actually verify.
+    """
     if not (fullchain_pem or "").strip():
         raise ValueError("fullchain contains no certificates")
+    fullchain_pem = complete_chain(fullchain_pem)
     try:
         certs = x509.load_pem_x509_certificates(fullchain_pem.encode())
     except ValueError as exc:

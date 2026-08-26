@@ -124,8 +124,9 @@ class CAProfile(SQLModel, table=True):
     eab_kid_sealed: bytes | None = None
     eab_hmac_sealed: bytes | None = None
 
-    # Issuer CN of the chain to prefer when the CA offers alternates. Relevant
-    # during Let's Encrypt's ISRG Root X1 -> Root YR migration.
+    # Issuer CN of the chain to prefer when the CA offers alternates.
+    # Let's Encrypt Generation Y: "ISRG Root X1" selects the YR-cross-signed
+    # path; the X1 certificate is appended at packaging time.
     preferred_chain: str | None = None
 
     account_key_sealed: bytes | None = None

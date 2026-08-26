@@ -122,3 +122,61 @@ def test_rejects_empty_chain():
             password="x",
             profile=Pkcs12Profile.modern,
         )
+
+
+def test_pkcs12_includes_isrg_root_x1_when_acme_omits_it():
+    """Generation Y fullchains stop at the YR cross-sign; the .p12 must still
+    carry ISRG Root X1 so IOS has a trust anchor."""
+    import datetime
+
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+
+    yr_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    inter_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    leaf_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    standin = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+
+    def cert(subject_cn, issuer_cn, key, issuer_key, ca):
+        now = datetime.datetime.now(datetime.timezone.utc)
+        return (
+            x509.CertificateBuilder()
+            .subject_name(x509.Name([x509.NameAttribute(x509.NameOID.COMMON_NAME, subject_cn)]))
+            .issuer_name(x509.Name([x509.NameAttribute(x509.NameOID.COMMON_NAME, issuer_cn)]))
+            .public_key(key.public_key())
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(now - datetime.timedelta(minutes=1))
+            .not_valid_after(now + datetime.timedelta(days=90))
+            .add_extension(x509.BasicConstraints(ca=ca, path_length=None), critical=True)
+            .sign(issuer_key, hashes.SHA256())
+        )
+
+    yr_by_x1 = cert("Root YR", "ISRG Root X1", yr_key, standin, True)
+    yr1 = cert("YR1", "Root YR", inter_key, yr_key, True)
+    leaf = cert("vg01.example.com", "YR1", leaf_key, inter_key, False)
+    fullchain = "".join(
+        c.public_bytes(serialization.Encoding.PEM).decode() for c in (leaf, yr1, yr_by_x1)
+    )
+    key_pem = leaf_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+    password = generate_pkcs12_password()
+    blob = build_pkcs12(
+        friendly_name="tp",
+        private_key_pem=key_pem,
+        fullchain_pem=fullchain,
+        password=password,
+        profile=Pkcs12Profile.modern,
+    )
+    _key, _leaf, additional = pkcs12.load_key_and_certificates(blob, password.encode())
+    cns = [
+        c.subject.get_attributes_for_oid(x509.NameOID.COMMON_NAME)[0].value
+        for c in (additional or [])
+    ]
+    assert "YR1" in cns
+    assert "Root YR" in cns
+    assert "ISRG Root X1" in cns
+

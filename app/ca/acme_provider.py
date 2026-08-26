@@ -8,9 +8,10 @@ version could not have:
 * **Structured results.** Renewal state came from grepping stdout for
   ``"Successfully received certificate"``; here an order either yields a chain
   or raises.
-* **Explicit chain selection.** Let's Encrypt is migrating from ISRG Root X1 to
-  Root YR, so which alternate chain gets shipped needs to be a decision on
-  record, not a default.
+* **Explicit chain selection.** Let's Encrypt's Generation Y default is
+  EE ← YR ← Root YR (cross-signed by ISRG Root X1). ``preferred_chain``
+  picks which alternate ACME offers; the X1 *certificate* is then appended
+  because ACME omits roots and IOS PKCS12 import needs them in the bag.
 """
 
 from __future__ import annotations
@@ -26,6 +27,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ec, rsa
 
 from app.ca.base import IssuedCertificate
+from app.ca.trust_anchors import complete_chain
 from app.dns.base import DnsSolver, TxtRecord
 from app.dns.propagation import wait_for_txt
 
@@ -387,10 +389,11 @@ class AcmeProvider:
             chain_issuer=issuers[chosen_idx],
             alternates=issuers,
         )
+        fullchain_pem = complete_chain(candidates[chosen_idx])
         return IssuedCertificate(
             fqdn=fqdn,
             private_key_pem=key_pem,
-            fullchain_pem=candidates[chosen_idx],
-            chain_issuer_cn=issuers[chosen_idx],
+            fullchain_pem=fullchain_pem,
+            chain_issuer_cn=_chain_issuer_cn(fullchain_pem),
             alternate_chain_issuers=issuers,
         )

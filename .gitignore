@@ -17,6 +17,9 @@ data/
 *.p12
 *.pem
 *.key
+# Bundled Let's Encrypt trust anchors shipped in the image so PKCS12 import
+# can include ISRG Root X1/X2 when ACME omits them.
+!app/ca/certs/*.pem
 
 # --- Python ------------------------------------------------------------------
 __pycache__/
