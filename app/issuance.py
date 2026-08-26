@@ -270,7 +270,7 @@ class IssuanceService:
             issued.fullchain_pem
         )
 
-        password = generate_pkcs12_password()
+        password = (self.settings.pkcs12_password or "").strip() or generate_pkcs12_password()
         p12 = build_pkcs12(
             friendly_name=device.idle_trustpoint(),
             private_key_pem=issued.private_key_pem,
@@ -347,3 +347,22 @@ class IssuanceService:
             )
         )
         self.session.commit()
+
+    def export_pkcs12(
+        self, cert: Certificate, device: Device, actor: str = "cli"
+    ) -> tuple[bytes, str]:
+        """Unseal a bundle and its password, recording the access."""
+        blob = self.box.open(cert.pkcs12_sealed, aad_pkcs12(device.fqdn, cert.serial))
+        password = self.box.open(
+            cert.pkcs12_password_sealed, aad_pkcs12_password(device.fqdn, cert.serial)
+        ).decode()
+        self.session.add(
+            AuditEvent(
+                actor=actor,
+                action="p12.export",
+                subject=device.fqdn,
+                detail=f"serial={cert.serial}",
+            )
+        )
+        self.session.commit()
+        return blob, password

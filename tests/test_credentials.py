@@ -135,7 +135,9 @@ def issued_cert(fleet, box):
 def test_successful_deployment_updates_stored_state(issued_cert, box):
     session, device, cert = issued_cert
     transport = FakeTransport()
-    service = DeploymentService(session, box, lambda d: _ctx(transport))
+    service = DeploymentService(
+        session, box, lambda d: _ctx(transport), public_base_url="http://htac.test"
+    )
 
     result = service.deploy_device(device, cert)
 
@@ -148,7 +150,9 @@ def test_successful_deployment_updates_stored_state(issued_cert, box):
 def test_failed_deployment_does_not_advance_active_trustpoint(issued_cert, box):
     session, device, cert = issued_cert
     transport = FakeTransport(import_result="reject")
-    service = DeploymentService(session, box, lambda d: _ctx(transport))
+    service = DeploymentService(
+        session, box, lambda d: _ctx(transport), public_base_url="http://htac.test"
+    )
 
     result = service.deploy_device(device, cert)
 
@@ -161,7 +165,9 @@ def test_deployment_is_recorded_in_the_run_log(issued_cert, box):
     from sqlmodel import select
 
     session, device, cert = issued_cert
-    service = DeploymentService(session, box, lambda d: _ctx(FakeTransport()))
+    service = DeploymentService(
+        session, box, lambda d: _ctx(FakeTransport()), public_base_url="http://htac.test"
+    )
     service.deploy_device(device, cert)
 
     logs = session.exec(select(RunLog).where(RunLog.action == "deploy")).all()
@@ -175,7 +181,9 @@ def test_key_access_is_audited(issued_cert, box):
     from app.db.models import AuditEvent
 
     session, device, cert = issued_cert
-    service = DeploymentService(session, box, lambda d: _ctx(FakeTransport()))
+    service = DeploymentService(
+        session, box, lambda d: _ctx(FakeTransport()), public_base_url="http://htac.test"
+    )
     service.deploy_device(device, cert)
 
     events = session.exec(
@@ -201,7 +209,9 @@ def test_previous_certificate_is_superseded(issued_cert, box):
     session.add(old)
     session.commit()
 
-    service = DeploymentService(session, box, lambda d: _ctx(FakeTransport()))
+    service = DeploymentService(
+        session, box, lambda d: _ctx(FakeTransport()), public_base_url="http://htac.test"
+    )
     service.deploy_device(device, cert)
 
     session.refresh(old)
@@ -218,7 +228,9 @@ def test_deploys_into_the_certificate_target_trustpoint(issued_cert, box):
             )
         }
     )
-    service = DeploymentService(session, box, lambda d: _ctx(transport))
+    service = DeploymentService(
+        session, box, lambda d: _ctx(transport), public_base_url="http://htac.test"
+    )
 
     service.deploy_device(device, cert)
     assert ("import_pkcs12", "HT-WxCAutoCert-B", "htautocert.p12") in transport.calls

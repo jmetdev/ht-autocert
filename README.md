@@ -12,7 +12,6 @@ depends on it.
 
 ---
 
-
 ## Quick start
 
 Requires [Docker Engine](https://docs.docker.com/engine/install/) and the
@@ -126,7 +125,7 @@ To stage a certificate ahead of a maintenance window without cutting over:
 ### The cutover sequence
 
 ```
-read state  →  upload .p12  →  clear IDLE trustpoint  →  import
+read state  →  HTTP copy .p12  →  clear IDLE trustpoint  →  import
             →  set revocation-check  →  VERIFY cn + serial on device
             →  bind sip-ua  →  verify binding  →  write memory  →  delete .p12
 ```
@@ -186,11 +185,13 @@ The `docker compose up` from Quick Start serves the console on
 `127.0.0.1:8866` (override with `HTAC_HOST_PORT`) and runs the scheduler in the
 same process. Sign in with `HTAC_API_TOKEN`.
 
-The console shows fleet state, per-device certificate history, live device
-state read through IOS-XE RESTCONF, and run history. It can issue and deploy on demand —
-including the stage-only (`--no-rebind`) path. Tenants, CA profiles and
-credentials stay CLI-only, so secrets are never entered into or returned by the
-web API.
+The console shows fleet state scoped to the organisation selected in the
+toolbar, per-device certificate history, live device state read through
+IOS-XE RESTCONF, and run history. Administrators can add, edit and delete
+tenants, CA profiles, operators and devices from the Admin page. Issue and
+deploy remain available to operators — including the stage-only
+(`--no-rebind`) path. The CLI is kept as an emergency/backup path against
+the same service layer.
 
 After changing application code, rebuild and restart:
 
@@ -370,13 +371,24 @@ GitHub → Settings → Actions → Runners).
 
 A container has no `~/.ssh/known_hosts`, so strict host key checking fails for
 every device unless the key is pinned with the device record. Do this once per
-gateway, comparing the fingerprint against the device before accepting:
-
-```bash
-./htac device trust brg-vgw-01.husd.clients.managedcollab.com
-```
+gateway from the device page in the Admin console (Pin SSH host key), comparing
+the fingerprint against the device before accepting.
 
 `./htac doctor` reports any device still missing a pinned SSH host key.
+The CLI equivalent is `./htac device trust <fqdn>`.
+
+### PKCS12 transfer
+
+Deployment no longer SCPs the bundle onto the gateway. The console stages the
+`.p12` at a short-lived URL and tells the router to fetch it:
+
+```
+copy https://<HTAC_PUBLIC_BASE_URL>/bundle/<token> bootflash:htautocert.p12
+```
+
+Set `HTAC_PUBLIC_BASE_URL` to an origin the voice gateways can reach (often the
+same public HTTPS hostname as the console). The token *is* the credential;
+there is no session cookie on that path.
 
 ### Moving an existing datastore into the volume
 
@@ -579,7 +591,7 @@ what they may *do*:
 |---|---|
 | `viewer` | Read fleet state, certificate history, run history, live device state |
 | `operator` | + issue, deploy, run the renewal cycle |
-| `admin` | + manage who else has access |
+| `admin` | + manage tenants, devices, CA profiles, operators, and diagnostics |
 
 ```bash
 ./htac operator add engineer@hyetechnetworks.com --role operator

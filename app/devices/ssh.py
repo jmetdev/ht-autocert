@@ -1,20 +1,18 @@
-"""IOS-XE transport over SSH (scrapli) with SCP file transfer.
+"""IOS-XE transport over SSH (scrapli).
 
-This replaces both the Ansible ``net_put``/``ios_config`` tasks and the EEM
-applet. Driving ``crypto pki import`` directly means the PKCS12 password lives
-only in the SSH session -- it is never rendered into ``running-config``, where
-the applet left it readable by anyone with ``show run`` and captured in every
-config backup.
+PKCS12 bundles are pulled by the gateway over HTTP (``copy http://...``) rather
+than pushed with SCP, which needs ``ip scp server enable`` and is a frequent
+source of transfer failures. Driving ``crypto pki import`` over SSH means the
+PKCS12 password lives only in the session -- it is never rendered into
+``running-config``.
 
 Prompt handling was validated against a Catalyst 8200 running IOS-XE 17.15.3a
 by capturing the raw channel; see the notes on the constants below.
 """
 
-import io
 import os
 import tempfile
 
-import paramiko
 import structlog
 from scrapli import Scrapli
 from scrapli.exceptions import ScrapliException
@@ -206,47 +204,58 @@ class IosXeSshTransport:
         )
         return state
 
-    def upload_file(self, data: bytes, remote_name: str) -> None:
-        """SCP the bundle to flash.
+    def fetch_file(self, url: str, remote_name: str) -> None:
+        """Have the gateway download a file over HTTP onto flash.
 
-        Requires ``ip scp server enable`` on the device. The Ansible role turned
-        that on and never turned it off; enabling it is left to the operator
-        here so it is a deliberate posture decision rather than a side effect.
+        ``file prompt quiet`` suppresses the destination-filename confirmation
+        so a fully-specified ``copy <url> <dest>`` returns to the exec prompt.
+        The prompt mode is restored afterwards.
         """
-        from scp import SCPClient  # imported late; only needed on deploy
-
-        client = paramiko.SSHClient()
-        if self.strict_host_key:
-            known_hosts = self._known_hosts_path()
-            if known_hosts:
-                client.load_host_keys(known_hosts)
-            else:
-                client.load_system_host_keys()
-            client.set_missing_host_key_policy(paramiko.RejectPolicy())
-        else:
-            client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-
+        dest = self._remote_path(remote_name)
+        self._send_interactive(
+            [("file prompt quiet", PROMPT_EXEC)],
+            privilege_level="privilege_exec",
+        )
         try:
-            client.connect(
-                hostname=self.host,
-                port=self.port,
-                username=self.username,
-                password=self.password,
-                look_for_keys=False,
-                allow_agent=False,
-                timeout=30,
+            response = self.conn.send_command(
+                f"copy {url} {dest}", timeout_ops=max(self._timeout_ops, 120.0)
             )
-            with SCPClient(client.get_transport(), socket_timeout=120.0) as scp:
-                scp.putfo(io.BytesIO(data), self._remote_path(remote_name))
-        except Exception as exc:  # noqa: BLE001 - surfaced with context
-            raise DeviceError(
-                f"{self.host}: SCP upload of {remote_name} failed: {exc} "
-                "(is 'ip scp server enable' configured?)"
-            ) from exc
+            result = response.result
+            if response.failed:
+                raise DeviceError(
+                    f"{self.host}: HTTP copy of {remote_name} failed: {result}"
+                )
+            lowered = result.lower()
+            for marker in (
+                "%error",
+                "error opening",
+                "connection refused",
+                "timed out",
+                "404",
+                "401",
+                "403",
+                "failed to",
+            ):
+                if marker in lowered:
+                    raise DeviceError(
+                        f"{self.host}: HTTP copy of {remote_name} reported: "
+                        f"{result.strip()}"
+                    )
         finally:
-            client.close()
+            try:
+                self._send_interactive(
+                    [("file prompt noisy", PROMPT_EXEC)],
+                    privilege_level="privilege_exec",
+                )
+            except DeviceError:
+                pass
 
-        log.info("device.file_uploaded", host=self.host, path=self._remote_path(remote_name))
+        log.info(
+            "device.file_fetched",
+            host=self.host,
+            path=dest,
+            url_host=url.split("/")[2] if "://" in url else url,
+        )
 
     def delete_file(self, remote_name: str) -> None:
         # 'file prompt quiet' is set around the import, but delete runs

@@ -885,6 +885,48 @@ def issue(
         raise typer.Exit(1)
 
 
+@app.command("export-p12")
+def export_p12(
+    fqdn: str = typer.Argument(..., help="Device FQDN."),
+    out: Path = typer.Option(None, help="Output path. Defaults to ./<fqdn>.p12"),
+    show_password: bool = typer.Option(
+        False, help="Print the bundle password to stdout."
+    ),
+) -> None:
+    """Write the current .p12 to disk for the Phase 1 Ansible hand-off.
+
+    The password is the configured static PKCS12 password (HTAC_PKCS12_PASSWORD).
+    """
+    settings = get_settings()
+    box = _box()
+
+    with session_scope() as session:
+        device = session.exec(select(Device).where(Device.fqdn == fqdn)).first()
+        if device is None:
+            typer.secho(f"No device with FQDN {fqdn!r}", fg="red")
+            raise typer.Exit(1)
+        cert = latest_certificate(session, device)
+        if cert is None:
+            typer.secho(f"No certificate on record for {fqdn}", fg="red")
+            raise typer.Exit(1)
+
+        service = IssuanceService(session, settings, box)
+        blob, password = service.export_pkcs12(cert, device)
+        # Read before the session closes.
+        serial = cert.serial
+        target_trustpoint = cert.target_trustpoint
+
+    target = out or Path(f"{fqdn}.p12")
+    target.write_bytes(blob)
+    target.chmod(0o600)
+    typer.echo(f"Wrote {target} ({len(blob)} bytes, serial {serial})")
+    typer.echo(f"Target trustpoint: {target_trustpoint}")
+    if show_password:
+        typer.echo(f"Password: {password}")
+    else:
+        typer.echo("Re-run with --show-password to print the bundle password.")
+
+
 @device_app.command("set-credentials")
 def device_set_credentials(
     fqdn: str = typer.Argument(..., help="Device FQDN."),
@@ -1130,7 +1172,10 @@ def deploy(
             raise typer.Exit(1)
 
         service = DeploymentService(
-            session, box, lambda d: build_transport(session, d, box)
+            session,
+            box,
+            lambda d: build_transport(session, d, box),
+            public_base_url=get_settings().public_base_url,
         )
 
         results = []

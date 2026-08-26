@@ -272,12 +272,8 @@ export function DiscoverPage({ identity }: { identity: Identity | null }) {
           Control Hub knows a trunk&rsquo;s certificate name, but that FQDN is
           for ACME only — it has no A record and is not the IOS management IP.
           Imported devices stay disabled until you set the management IP, pin
-          the SSH host key, and add credentials:
-          <Code block mt="xs">
-            ./htac device set-address &lt;fqdn&gt; --address &lt;mgmt-ip&gt;{'\n'}
-            ./htac device trust &lt;fqdn&gt;{'\n'}
-            ./htac device set-credentials &lt;fqdn&gt;
-          </Code>
+          the SSH host key, and add credentials on the device page (or via
+          CLI). The renewal scheduler skips disabled devices.
         </Alert>
       )}
     </Stack>

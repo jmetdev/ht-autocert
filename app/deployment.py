@@ -92,7 +92,7 @@ class Deployer:
         self,
         *,
         fqdn: str,
-        p12: bytes,
+        bundle_url: str,
         password: str,
         subject_cn: str,
         serial: str,
@@ -113,9 +113,14 @@ class Deployer:
         if already and already.matches(subject_cn, serial):
             self._step(f"{idle_trustpoint} already holds serial {serial}")
 
-        # --- stage the bundle ------------------------------------------------
-        self.transport.upload_file(p12, self.remote_filename)
-        self._step(f"uploaded {self.remote_filename}")
+        # --- stage the bundle via HTTP --------------------------------------
+        if not bundle_url:
+            raise DeviceError(
+                f"{fqdn}: no bundle URL; set HTAC_PUBLIC_BASE_URL so the "
+                "gateway can download the PKCS12 over HTTP"
+            )
+        self.transport.fetch_file(bundle_url, self.remote_filename)
+        self._step(f"fetched {self.remote_filename} over HTTP")
 
         try:
             # --- import into the IDLE trustpoint only ------------------------
@@ -277,10 +282,11 @@ class Deployer:
 class DeploymentService:
     """Ties the deployer to the datastore."""
 
-    def __init__(self, session: Session, box, transport_factory):
+    def __init__(self, session: Session, box, transport_factory, *, public_base_url: str = ""):
         self.session = session
         self.box = box
         self.transport_factory = transport_factory
+        self.public_base_url = public_base_url.rstrip("/")
 
     def deploy_device(
         self,
@@ -292,6 +298,7 @@ class DeploymentService:
         revocation_check: str = "none",
         actor: str = "cli",
     ) -> DeploymentResult:
+        from app.bundle_store import get_bundle_store
         from app.vault import aad_pkcs12, aad_pkcs12_password
 
         run_id = run_id or uuid.uuid4().hex[:12]
@@ -311,6 +318,20 @@ class DeploymentService:
         )
         self.session.commit()
 
+        if not self.public_base_url:
+            detail = (
+                "HTAC_PUBLIC_BASE_URL is not set, so the gateway has nowhere to "
+                "download the PKCS12 from. Set it to a URL the voice gateway can "
+                "reach (often the console's public HTTPS origin)."
+            )
+            bound.error("deploy.failed", error=detail)
+            self._record(run_id, device, RunStatus.failed, detail)
+            return DeploymentResult(fqdn=device.fqdn, status="failed", detail=detail)
+
+        store = get_bundle_store()
+        token = store.put(p12, filename="htautocert.p12")
+        bundle_url = f"{self.public_base_url}/bundle/{token}"
+
         idle = cert.target_trustpoint or device.idle_trustpoint()
 
         try:
@@ -320,7 +341,7 @@ class DeploymentService:
                 )
                 result = deployer.deploy(
                     fqdn=device.fqdn,
-                    p12=p12,
+                    bundle_url=bundle_url,
                     password=password,
                     subject_cn=cert.subject_cn,
                     serial=cert.serial,
@@ -330,6 +351,8 @@ class DeploymentService:
             bound.error("deploy.failed", error=str(exc))
             self._record(run_id, device, RunStatus.failed, str(exc))
             return DeploymentResult(fqdn=device.fqdn, status="failed", detail=str(exc))
+        finally:
+            store.discard(token)
 
         if result.status == "deployed" and result.active_trustpoint == idle:
             self._mark_superseded(device, cert)

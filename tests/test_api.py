@@ -186,9 +186,26 @@ def test_device_list_filters_by_state(client):
     assert [d["fqdn"] for d in due] == ["vg02.husd.clients.example.com"]
 
 
-def test_device_list_filters_by_tenant(client):
-    assert len(client.get("/api/devices", params={"tenant": "husd"}).json()) == 3
-    assert client.get("/api/devices", params={"tenant": "nope"}).status_code == 404
+def test_device_list_filters_by_org_id(client, seeded):
+    from sqlmodel import select
+
+    from app.db.models import Tenant as T
+
+    tenant = seeded.exec(select(T).where(T.slug == "husd")).first()
+    tenant.webex_org_id = "ORG-HUSD"
+    seeded.add(tenant)
+    seeded.commit()
+
+    found = client.get("/api/devices", params={"org_id": "ORG-HUSD"}).json()
+    assert len(found) == 3
+    missing = client.get("/api/devices", params={"org_id": "ORG-OTHER"})
+    assert missing.status_code == 404
+
+
+def test_summary_filters_by_tenant(client):
+    payload = client.get("/api/summary", params={"tenant": "husd"}).json()
+    assert payload["devices"] == 3
+    assert payload["tenants"] == 1
 
 
 def test_credentials_flag_is_reported_without_exposing_them(client):
@@ -433,3 +450,148 @@ def test_discovery_without_a_stored_webex_token_explains_why(client, seeded, mon
     response = client.get("/api/webex/orgs")
     assert response.status_code == 409
     assert "Sign out and sign in with Webex" in response.json()["detail"]
+
+
+# -- admin inventory ---------------------------------------------------------
+
+
+def test_create_and_delete_device(client):
+    created = client.post(
+        "/api/devices",
+        json={
+            "tenant": "husd",
+            "hostname": "vg-new",
+            "fqdn": "vg-new.husd.clients.example.com",
+            "address": "10.0.0.9",
+            "enabled": False,
+        },
+    )
+    assert created.status_code == 200, created.text
+    assert created.json()["enabled"] is False
+    assert created.json()["has_host_key"] is False
+
+    assert client.delete("/api/devices/vg-new.husd.clients.example.com").status_code == 204
+    assert client.get("/api/devices/vg-new.husd.clients.example.com").status_code == 404
+
+
+def test_update_device_sans_and_enable(client):
+    fqdn = "vg03.husd.clients.example.com"
+    updated = client.patch(
+        f"/api/devices/{fqdn}",
+        json={"enabled": True, "extra_sans": ["alt.example.com"], "address": "10.9.9.9"},
+    )
+    assert updated.status_code == 200
+    assert updated.json()["enabled"] is True
+    assert updated.json()["extra_sans"] == ["alt.example.com"]
+    assert updated.json()["mgmt_address"] == "10.9.9.9"
+
+
+def test_credentials_are_stored_and_never_returned(client):
+    fqdn = CN
+    response = client.put(
+        f"/api/devices/{fqdn}/credentials",
+        json={"username": "netadmin", "password": "s3cret-device-pw"},
+    )
+    assert response.status_code == 204
+    body = client.get(f"/api/devices/{fqdn}").json()
+    assert body["has_credentials"] is True
+    assert "s3cret-device-pw" not in client.get(f"/api/devices/{fqdn}").text
+
+
+def test_tenant_credentials_flag(client):
+    response = client.put(
+        "/api/tenants/husd/credentials",
+        json={"username": "shared", "password": "tenant-secret"},
+    )
+    assert response.status_code == 204
+    tenant = client.get("/api/tenants").json()[0]
+    assert tenant["has_default_credentials"] is True
+    assert "tenant-secret" not in str(tenant)
+
+
+def test_create_tenant(client):
+    body = client.post(
+        "/api/tenants",
+        json={
+            "slug": "yuma",
+            "name": "Yuma",
+            "domain_suffix": "yuma.clients.example.com",
+            "ca": "letsencrypt",
+        },
+    )
+    assert body.status_code == 200, body.text
+    assert body.json()["slug"] == "yuma"
+
+
+def test_duplicate_tenant_is_conflict(client):
+    response = client.post(
+        "/api/tenants",
+        json={
+            "slug": "husd",
+            "name": "HUSD",
+            "domain_suffix": "x.example.com",
+            "ca": "letsencrypt",
+        },
+    )
+    assert response.status_code == 409
+
+
+def test_ca_profile_crud(client):
+    created = client.post(
+        "/api/ca-profiles",
+        json={"name": "le-staging", "email": "ops@example.com", "staging": True},
+    )
+    assert created.status_code == 200
+    assert "acme-staging" in created.json()["directory_url"]
+
+    patched = client.patch(
+        "/api/ca-profiles/le-staging",
+        json={"preferred_chain": "ISRG Root X1", "enabled": False},
+    )
+    assert patched.json()["preferred_chain"] == "ISRG Root X1"
+    assert patched.json()["enabled"] is False
+    assert client.delete("/api/ca-profiles/le-staging").status_code == 204
+
+
+def test_cannot_delete_ca_in_use(client):
+    assert client.delete("/api/ca-profiles/letsencrypt").status_code == 409
+
+
+def test_cannot_delete_tenant_with_devices(client):
+    assert client.delete("/api/tenants/husd").status_code == 409
+
+
+def test_operator_crud(client):
+    created = client.post(
+        "/api/operators",
+        json={"email": "eng@example.com", "role": "operator", "display_name": "Eng"},
+    )
+    assert created.status_code == 200
+    assert created.json()["role"] == "operator"
+
+    listed = {o["email"]: o for o in client.get("/api/operators").json()}
+    assert "eng@example.com" in listed
+
+    patched = client.patch(
+        "/api/operators/eng@example.com", json={"role": "viewer", "enabled": False}
+    )
+    assert patched.json()["role"] == "viewer"
+    assert patched.json()["enabled"] is False
+
+    assert client.delete("/api/operators/eng@example.com").status_code == 204
+    emails = [o["email"] for o in client.get("/api/operators").json()]
+    assert "eng@example.com" not in emails
+
+
+def test_doctor_is_readable(client):
+    report = client.get("/api/doctor").json()
+    assert "checks" in report
+    names = [c["name"] for c in report["checks"]]
+    assert "master key" in names
+
+
+def test_pkcs12_download_is_a_binary_file(client):
+    response = client.get(f"/api/devices/{CN}/pkcs12")
+    assert response.status_code == 200
+    assert "application/x-pkcs12" in response.headers["content-type"]
+    assert P12_PASSWORD.encode() not in response.content

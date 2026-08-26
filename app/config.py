@@ -103,6 +103,19 @@ class Settings(BaseSettings):
     # Set false only when terminating TLS elsewhere and testing over plain HTTP.
     session_cookie_secure: bool = True
 
+    # Shared PKCS12 password for every issued bundle. A random per-issuance
+    # password made it impossible to retry an import with the same .p12 file
+    # when the router rejected it. Alphanumeric only: the value is typed into
+    # an IOS-XE exec command.
+    pkcs12_password: str = "HtAcPkcs12"
+
+    # URL the *gateways* use to fetch a staged PKCS12 (not the URL a browser
+    # uses to open the console). Deploy tells the router
+    # ``copy <this>/bundle/<token> bootflash:htautocert.p12``. Must be
+    # reachable from the voice-gateway VRF; HTTPS is fine if the device trusts
+    # the server certificate.
+    public_base_url: str = ""
+
     @property
     def webex_scope_string(self) -> str:
         """Scopes as Webex wants them: space separated."""
@@ -122,6 +135,7 @@ class Settings(BaseSettings):
         "cloudflare_api_token",
         "api_token",
         "webex_client_secret",
+        "pkcs12_password",
         mode="before",
     )
     @classmethod

@@ -43,7 +43,7 @@ class Role(str, Enum):
 
     viewer = "viewer"      # read fleet state, history, live device state
     operator = "operator"  # + issue, deploy, run the renewal cycle
-    admin = "admin"        # + manage who else has access
+    admin = "admin"        # + manage inventory, operators, and configuration
 
     def at_least(self, required: "Role") -> bool:
         order = {Role.viewer: 0, Role.operator: 1, Role.admin: 2}

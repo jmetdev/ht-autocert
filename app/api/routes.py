@@ -20,6 +20,8 @@ from app.api.deps import (
     require_admin,
     require_operator,
     require_viewer,
+    resolve_tenant_filter,
+    tenant_view,
 )
 from app.api.schemas import (
     ActionResultOut,
@@ -55,10 +57,16 @@ router = APIRouter(prefix="/api", dependencies=[Depends(require_viewer)])
 
 @router.get("/summary", response_model=SummaryOut)
 def summary(
+    tenant: str | None = Query(default=None),
+    org_id: str | None = Query(default=None),
     session: Session = Depends(get_session),
     settings: Settings = Depends(get_config),
 ) -> SummaryOut:
-    devices = session.exec(select(Device)).all()
+    scoped = resolve_tenant_filter(session, tenant, org_id)
+    stmt = select(Device)
+    if scoped is not None:
+        stmt = stmt.where(Device.tenant_id == scoped.id)
+    devices = session.exec(stmt).all()
     views = [device_view(session, d, settings) for d in devices]
 
     soon = datetime.now(timezone.utc) + timedelta(days=14)
@@ -85,7 +93,7 @@ def summary(
 
     return SummaryOut(
         devices=len(views),
-        tenants=len(session.exec(select(Tenant)).all()),
+        tenants=1 if scoped is not None else len(session.exec(select(Tenant)).all()),
         ok=sum(1 for v in views if v.state == "ok"),
         renew_due=sum(1 for v in views if v.state == "renew_due"),
         expired=sum(1 for v in views if v.state == "expired"),
@@ -104,16 +112,15 @@ def summary(
 @router.get("/devices", response_model=list[DeviceOut])
 def list_devices(
     tenant: str | None = Query(default=None),
+    org_id: str | None = Query(default=None),
     state: str | None = Query(default=None),
     session: Session = Depends(get_session),
     settings: Settings = Depends(get_config),
 ) -> list[DeviceOut]:
     stmt = select(Device)
-    if tenant:
-        t = session.exec(select(Tenant).where(Tenant.slug == tenant)).first()
-        if t is None:
-            raise HTTPException(status_code=404, detail=f"No tenant {tenant}")
-        stmt = stmt.where(Device.tenant_id == t.id)
+    scoped = resolve_tenant_filter(session, tenant, org_id)
+    if scoped is not None:
+        stmt = stmt.where(Device.tenant_id == scoped.id)
 
     views = [
         device_view(session, d, settings)
@@ -163,29 +170,10 @@ def set_device_address(
 
 @router.get("/tenants", response_model=list[TenantOut])
 def list_tenants(session: Session = Depends(get_session)) -> list[TenantOut]:
-    out = []
-    for tenant in session.exec(select(Tenant).order_by(Tenant.slug)).all():
-        profile = (
-            session.get(CAProfile, tenant.ca_profile_id)
-            if tenant.ca_profile_id
-            else None
-        )
-        count = len(
-            session.exec(select(Device).where(Device.tenant_id == tenant.id)).all()
-        )
-        out.append(
-            TenantOut(
-                id=tenant.id,
-                slug=tenant.slug,
-                name=tenant.name,
-                domain_suffix=tenant.domain_suffix,
-                renew_before_days=tenant.renew_before_days,
-                enabled=tenant.enabled,
-                ca_profile_name=profile.name if profile else None,
-                device_count=count,
-            )
-        )
-    return out
+    return [
+        tenant_view(session, tenant)
+        for tenant in session.exec(select(Tenant).order_by(Tenant.slug)).all()
+    ]
 
 
 @router.get("/ca-profiles", response_model=list[CAProfileOut])
@@ -332,6 +320,7 @@ def deploy_device(
     rebind: bool = Query(default=True, description="False stages without cutting over"),
     principal=Depends(require_operator),
     session: Session = Depends(get_session),
+    settings: Settings = Depends(get_config),
     box: SecretBox = Depends(get_box),
 ) -> ActionResultOut:
     device = get_device_or_404(session, fqdn)
@@ -342,7 +331,10 @@ def deploy_device(
         )
 
     service = DeploymentService(
-        session, box, lambda d: build_transport(session, d, box)
+        session,
+        box,
+        lambda d: build_transport(session, d, box),
+        public_base_url=settings.public_base_url,
     )
     result = service.deploy_device(
         device,
@@ -460,7 +452,7 @@ def link_webex_org(
     session.add(tenant)
     session.commit()
     log.info("webex.org_linked", actor=principal.actor, tenant=slug, org_id=org_id)
-    return TenantOut.model_validate(tenant, from_attributes=True)
+    return tenant_view(session, tenant)
 
 
 @router.post("/webex/import", response_model=WebexImportOut)

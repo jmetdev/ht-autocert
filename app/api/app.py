@@ -4,13 +4,15 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import structlog
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from app.api.auth_routes import router as auth_router
+from app.api.admin_routes import router as admin_router
 from app.api.routes import router
+from app.bundle_store import get_bundle_store
 from app.config import get_settings
 from app.db.session import init_db
 from app.logging import configure_logging
@@ -70,6 +72,26 @@ def create_app() -> FastAPI:
 
     app.include_router(auth_router)
     app.include_router(router)
+    app.include_router(admin_router)
+
+    @app.get("/bundle/{token}", include_in_schema=False)
+    def download_bundle(token: str):
+        """Unauthenticated one-shot PKCS12 fetch for IOS-XE ``copy http://``.
+
+        The token is the credential. Gateways cannot send a session cookie.
+        """
+        found = get_bundle_store().get(token, consume=False)
+        if found is None:
+            raise HTTPException(status_code=404, detail="Unknown or expired bundle")
+        data, filename = found
+        return Response(
+            content=data,
+            media_type="application/x-pkcs12",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Cache-Control": "no-store",
+            },
+        )
 
     @app.get("/healthz", include_in_schema=False)
     def healthz() -> dict:

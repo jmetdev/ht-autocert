@@ -10,7 +10,10 @@ import {
   List,
   Loader,
   Modal,
+  NumberInput,
   Paper,
+  PasswordInput,
+  Select,
   SimpleGrid,
   Stack,
   Switch,
@@ -26,11 +29,14 @@ import {
   IconAlertTriangle,
   IconArrowLeft,
   IconCertificate,
+  IconDownload,
+  IconKey,
   IconRefresh,
+  IconTrash,
   IconUpload,
 } from '@tabler/icons-react';
 import { useCallback, useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 
 import { DaysBadge, StateBadge } from '../components/StateBadge';
 import {
@@ -54,7 +60,9 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
 
 export function DeviceDetailPage({ identity }: { identity: Identity | null }) {
   const canOperate = hasRole(identity, 'operator');
+  const canAdmin = hasRole(identity, 'admin');
   const { fqdn = '' } = useParams();
+  const navigate = useNavigate();
   const [device, setDevice] = useState<DeviceDetail | null>(null);
   const [live, setLive] = useState<LiveState | null>(null);
   const [liveError, setLiveError] = useState<string | null>(null);
@@ -63,7 +71,16 @@ export function DeviceDetailPage({ identity }: { identity: Identity | null }) {
   const [rebind, setRebind] = useState(true);
   const [mgmtAddress, setMgmtAddress] = useState('');
   const [confirmOpened, { open: openConfirm, close: closeConfirm }] = useDisclosure();
+  const [credsOpened, { open: openCreds, close: closeCreds }] = useDisclosure();
   const [steps, setSteps] = useState<string[]>([]);
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [enablePassword, setEnablePassword] = useState('');
+  const [address, setAddress] = useState('');
+  const [sshPort, setSshPort] = useState<number | string>(22);
+  const [sans, setSans] = useState('');
+  const [enabled, setEnabled] = useState(true);
+  const [p12Profile, setP12Profile] = useState('modern');
 
   const load = useCallback(() => {
     setLoading(true);
@@ -72,6 +89,11 @@ export function DeviceDetailPage({ identity }: { identity: Identity | null }) {
       .then((d) => {
         setDevice(d);
         setMgmtAddress(d.mgmt_address);
+        setAddress(d.mgmt_address);
+        setSshPort(d.ssh_port);
+        setSans((d.extra_sans ?? []).join(', '));
+        setEnabled(d.enabled);
+        setP12Profile(d.pkcs12_profile);
       })
       .catch((err) => notifications.show({ color: 'red', message: err.message }))
       .finally(() => setLoading(false));
@@ -111,6 +133,7 @@ export function DeviceDetailPage({ identity }: { identity: Identity | null }) {
       const updated = await api.setAddress(fqdn, mgmtAddress);
       setDevice(updated);
       setMgmtAddress(updated.mgmt_address);
+      setAddress(updated.mgmt_address);
       notifications.show({
         color: 'green',
         message: `Management address set to ${updated.mgmt_address}`,
@@ -191,8 +214,7 @@ export function DeviceDetailPage({ identity }: { identity: Identity | null }) {
       {!device.has_credentials && (
         <Alert color="yellow" icon={<IconAlertTriangle size={16} />}>
           No SSH credentials are set for this gateway or its tenant, so deployment
-          will fail. Set them with{' '}
-          <Code>htac device set-credentials {device.fqdn}</Code>.
+          will fail.{canAdmin ? ' Set them below.' : ' An administrator can set them here.'}
         </Alert>
       )}
 
@@ -277,6 +299,92 @@ export function DeviceDetailPage({ identity }: { identity: Identity | null }) {
         </Card>
       </SimpleGrid>
 
+      {canAdmin && (
+        <Card withBorder>
+          <Stack gap="sm">
+            <Text fw={600}>Inventory</Text>
+            <SimpleGrid cols={{ base: 1, sm: 2 }}>
+              <TextInput
+                label="Management address"
+                value={address}
+                onChange={(e) => setAddress(e.currentTarget.value)}
+              />
+              <NumberInput label="SSH port" value={sshPort} onChange={setSshPort} min={1} />
+              <TextInput
+                label="Extra SANs"
+                description="Comma-separated. The FQDN is always the primary name."
+                value={sans}
+                onChange={(e) => setSans(e.currentTarget.value)}
+              />
+              <Select
+                label="PKCS12 profile"
+                data={[
+                  { value: 'modern', label: 'modern (AES)' },
+                  { value: 'legacy', label: 'legacy (3DES, older IOS-XE)' },
+                ]}
+                value={p12Profile}
+                onChange={(v) => setP12Profile(v || 'modern')}
+              />
+            </SimpleGrid>
+            <Group>
+              <Switch
+                checked={enabled}
+                onChange={(e) => setEnabled(e.currentTarget.checked)}
+                label="Enabled"
+                description="The scheduler skips disabled devices."
+              />
+              <Badge variant="light" color={device.has_host_key ? 'green' : 'yellow'}>
+                {device.has_host_key ? 'host key pinned' : 'host key not pinned'}
+              </Badge>
+            </Group>
+            <Group>
+              <Button
+                onClick={async () => {
+                  setBusy(true);
+                  try {
+                    await api.updateDevice(device.fqdn, {
+                      address,
+                      ssh_port: Number(sshPort) || 22,
+                      extra_sans: sans
+                        .split(',')
+                        .map((s) => s.trim())
+                        .filter(Boolean),
+                      pkcs12_profile: p12Profile,
+                      enabled,
+                    });
+                    notifications.show({ color: 'green', message: 'Device updated' });
+                    load();
+                  } catch (err) {
+                    notifications.show({ color: 'red', message: (err as Error).message });
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+                loading={busy}
+              >
+                Save
+              </Button>
+              <Button
+                color="red"
+                variant="light"
+                leftSection={<IconTrash size={16} />}
+                onClick={async () => {
+                  if (!confirm(`Delete ${device.fqdn} and its escrowed certificates?`)) return;
+                  try {
+                    await api.deleteDevice(device.fqdn);
+                    navigate('/fleet');
+                  } catch (err) {
+                    notifications.show({ color: 'red', message: (err as Error).message });
+                  }
+                }}
+              >
+                Delete device
+              </Button>
+            </Group>
+          </Stack>
+        </Card>
+      )}
+
       <Group>
         <Tooltip
           label="Requires the operator role"
@@ -314,6 +422,59 @@ export function DeviceDetailPage({ identity }: { identity: Identity | null }) {
         >
           Read live state
         </Button>
+        {canOperate && device.serial && (
+          <Button
+            variant="light"
+            leftSection={<IconDownload size={16} />}
+            onClick={async () => {
+              try {
+                await api.downloadPkcs12(device.fqdn);
+              } catch (err) {
+                notifications.show({ color: 'red', message: (err as Error).message });
+              }
+            }}
+          >
+            Download .p12
+          </Button>
+        )}
+        {canAdmin && (
+          <Button variant="light" leftSection={<IconKey size={16} />} onClick={openCreds}>
+            Credentials
+          </Button>
+        )}
+        {canAdmin && (
+          <Button
+            variant="light"
+            onClick={async () => {
+              setBusy(true);
+              try {
+                const preview = await api.previewHostKey(device.fqdn);
+                const ok =
+                  preview.already_pinned ||
+                  confirm(
+                    `${preview.key_type} ${preview.fingerprint}\n\nPin this host key?` +
+                      (preview.differs_from_pinned
+                        ? '\n\nWARNING: a different key is already pinned.'
+                        : ''),
+                  );
+                if (!ok) return;
+                const pinned = await api.pinHostKey(device.fqdn);
+                notifications.show({
+                  color: 'green',
+                  message: `Pinned ${pinned.key_type} ${pinned.fingerprint}`,
+                });
+                load();
+              } catch (err) {
+                notifications.show({ color: 'red', message: (err as Error).message });
+              } finally {
+                setBusy(false);
+              }
+            }}
+            loading={busy}
+          >
+            Pin SSH host key
+          </Button>
+        )}
       </Group>
 
       {steps.length > 0 && (
@@ -486,6 +647,55 @@ export function DeviceDetailPage({ identity }: { identity: Identity | null }) {
             </Button>
             <Button onClick={deploy} color={rebind ? 'blue' : 'gray'}>
               {rebind ? 'Deploy and cut over' : 'Stage only'}
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
+
+      <Modal opened={credsOpened} onClose={closeCreds} title="SSH credentials">
+        <Stack>
+          <TextInput
+            label="Username"
+            value={username}
+            onChange={(e) => setUsername(e.currentTarget.value)}
+          />
+          <PasswordInput
+            label="Password"
+            value={password}
+            onChange={(e) => setPassword(e.currentTarget.value)}
+          />
+          <PasswordInput
+            label="Enable password (optional)"
+            value={enablePassword}
+            onChange={(e) => setEnablePassword(e.currentTarget.value)}
+          />
+          <Group justify="flex-end">
+            <Button variant="default" onClick={closeCreds}>
+              Cancel
+            </Button>
+            <Button
+              onClick={async () => {
+                setBusy(true);
+                try {
+                  await api.setDeviceCredentials(
+                    device.fqdn,
+                    username,
+                    password,
+                    enablePassword || undefined,
+                  );
+                  notifications.show({ color: 'green', message: 'Credentials stored' });
+                  closeCreds();
+                  load();
+                } catch (err) {
+                  notifications.show({ color: 'red', message: (err as Error).message });
+                } finally {
+                  setBusy(false);
+                }
+              }}
+              loading={busy}
+              disabled={!username || !password}
+            >
+              Store
             </Button>
           </Group>
         </Stack>

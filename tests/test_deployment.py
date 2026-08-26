@@ -48,9 +48,9 @@ class FakeTransport:
             trustpoints=dict(self.trustpoints), bound_trustpoint=self.bound
         )
 
-    def upload_file(self, data, remote_name):
-        self.calls.append(("upload_file", remote_name, len(data)))
-        self.files[remote_name] = data
+    def fetch_file(self, url, remote_name):
+        self.calls.append(("fetch_file", url, remote_name))
+        self.files[remote_name] = b"fetched"
 
     def delete_file(self, remote_name):
         self.calls.append(("delete_file", remote_name))
@@ -97,7 +97,7 @@ def run(transport, *, idle="HT-WxCAutoCert-B", **kwargs):
     deployer = Deployer(transport, **kwargs)
     return deployer.deploy(
         fqdn=CN,
-        p12=b"fake-p12-bytes",
+        bundle_url="http://htac.test/bundle/test-token",
         password="secret",
         subject_cn=CN,
         serial=SERIAL,
@@ -123,7 +123,8 @@ def test_operations_happen_in_the_safe_order():
     run(t)
     names = t.names()
 
-    # Import and verification must both precede the rebind.
+    # Fetch must precede import.
+    assert names.index("fetch_file") < names.index("import_pkcs12")
     assert names.index("import_pkcs12") < names.index("bind_trustpoint")
     assert names.index("set_revocation_check") < names.index("bind_trustpoint")
     # Config is saved only after the binding is confirmed.
@@ -206,7 +207,7 @@ def test_never_deploys_into_the_bound_trustpoint():
     with pytest.raises(DeviceError, match="currently bound"):
         run(t, idle="HT-WxCAutoCert-B")
 
-    assert "upload_file" not in t.names()
+    assert "fetch_file" not in t.names()
 
 
 def test_idle_trustpoint_is_cleared_only_when_it_exists():

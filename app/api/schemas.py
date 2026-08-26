@@ -24,6 +24,7 @@ class TenantOut(BaseModel):
     device_count: int = 0
     webex_org_id: str | None = None
     webex_org_name: str | None = None
+    has_default_credentials: bool = False
 
 
 class CAProfileOut(BaseModel):
@@ -76,6 +77,9 @@ class DeviceOut(BaseModel):
     pkcs12_profile: str
     revocation_check: str
     has_credentials: bool
+    extra_sans: list[str] = []
+    ssh_port: int = 22
+    has_host_key: bool = False
 
     # Derived certificate state
     days_remaining: int | None = None
@@ -198,3 +202,137 @@ class CycleSummaryOut(BaseModel):
     deployed: int
     deploy_failed: int
     details: list[dict] = []
+
+
+# -- write models (admin) ----------------------------------------------------
+
+
+class TenantCreate(BaseModel):
+    slug: str
+    name: str
+    domain_suffix: str
+    ca: str
+    renew_before_days: int = 30
+
+
+class TenantUpdate(BaseModel):
+    name: str | None = None
+    domain_suffix: str | None = None
+    ca: str | None = None
+    renew_before_days: int | None = None
+    enabled: bool | None = None
+
+
+class CredentialsIn(BaseModel):
+    username: str
+    password: str
+    enable_password: str | None = None
+
+
+class CAProfileCreate(BaseModel):
+    name: str
+    email: str
+    directory_url: str | None = None
+    staging: bool = False
+    eab_kid: str | None = None
+    eab_hmac: str | None = None
+    preferred_chain: str | None = None
+
+
+class CAProfileUpdate(BaseModel):
+    email: str | None = None
+    directory_url: str | None = None
+    preferred_chain: str | None = None
+    enabled: bool | None = None
+    eab_kid: str | None = None
+    eab_hmac: str | None = None
+    clear_eab: bool = False
+
+
+class DeviceCreate(BaseModel):
+    tenant: str
+    hostname: str
+    fqdn: str
+    address: str
+    ssh_port: int = 22
+    trustpoint_a: str = "HT-WxCAutoCert-A"
+    trustpoint_b: str = "HT-WxCAutoCert-B"
+    active_trustpoint: str | None = None
+    pkcs12_profile: str = "modern"
+    extra_sans: list[str] = []
+    enabled: bool = False
+    revocation_check: str = "none"
+
+
+class DeviceUpdate(BaseModel):
+    hostname: str | None = None
+    address: str | None = None
+    ssh_port: int | None = None
+    enabled: bool | None = None
+    pkcs12_profile: str | None = None
+    extra_sans: list[str] | None = None
+    trustpoint_a: str | None = None
+    trustpoint_b: str | None = None
+    active_trustpoint: str | None = None
+    revocation_check: str | None = None
+    tenant: str | None = None
+
+
+class SansIn(BaseModel):
+    sans: list[str] = []
+
+
+class OperatorOut(BaseModel):
+    email: str
+    role: str
+    display_name: str | None = None
+    enabled: bool
+    last_seen_at: datetime | None = None
+    added_by: str | None = None
+    source: str = "grant"  # grant | bootstrap
+
+
+class OperatorCreate(BaseModel):
+    email: str
+    role: str = "viewer"
+    display_name: str | None = None
+
+
+class OperatorUpdate(BaseModel):
+    role: str | None = None
+    display_name: str | None = None
+    enabled: bool | None = None
+
+
+class HostKeyOut(BaseModel):
+    fqdn: str
+    address: str
+    port: int
+    key_type: str
+    fingerprint: str
+    already_pinned: bool
+    differs_from_pinned: bool
+
+
+class DoctorCheckOut(BaseModel):
+    name: str
+    status: str
+    detail: str = ""
+    remedy: str = ""
+
+
+class DoctorReportOut(BaseModel):
+    failures: int
+    warnings: int
+    checks: list[DoctorCheckOut]
+
+
+class DnsChallengeOut(BaseModel):
+    name: str
+    record_id: str
+
+
+class DnsChallengeListOut(BaseModel):
+    zone: str
+    records: list[DnsChallengeOut]
+    deleted: int = 0

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from fastapi import Depends, Header, HTTPException, Request, status
 from sqlmodel import Session, select
 
-from app.api.schemas import CertificateOut, DeviceOut
+from app.api.schemas import CertificateOut, DeviceOut, TenantOut
 from app.config import Settings, get_settings
 from app.db.models import CAProfile, CertStatus, Certificate, Device, Role, Tenant
 from app.db.session import get_engine
@@ -175,6 +175,9 @@ def device_view(
         idle_trustpoint=device.idle_trustpoint(),
         pkcs12_profile=device.pkcs12_profile.value,
         revocation_check=device.revocation_check,
+        extra_sans=device.san_list()[1:],
+        ssh_port=device.ssh_port,
+        has_host_key=bool(device.ssh_host_key),
         has_credentials=bool(has_password and has_username),
         days_remaining=days,
         not_after=cert.not_after if cert else None,
@@ -206,6 +209,30 @@ def get_device_or_404(session: Session, fqdn: str) -> Device:
     return device
 
 
+def tenant_view(session: Session, tenant: Tenant) -> TenantOut:
+    profile = (
+        session.get(CAProfile, tenant.ca_profile_id) if tenant.ca_profile_id else None
+    )
+    count = len(
+        session.exec(select(Device).where(Device.tenant_id == tenant.id)).all()
+    )
+    return TenantOut(
+        id=tenant.id,
+        slug=tenant.slug,
+        name=tenant.name,
+        domain_suffix=tenant.domain_suffix,
+        renew_before_days=tenant.renew_before_days,
+        enabled=tenant.enabled,
+        ca_profile_name=profile.name if profile else None,
+        device_count=count,
+        webex_org_id=tenant.webex_org_id,
+        webex_org_name=tenant.webex_org_name,
+        has_default_credentials=bool(
+            tenant.default_username and tenant.default_password_sealed
+        ),
+    )
+
+
 def ca_profile_view(profile: CAProfile):
     from app.api.schemas import CAProfileOut
 
@@ -221,6 +248,32 @@ def ca_profile_view(profile: CAProfile):
     )
 
 
+def resolve_tenant_filter(
+    session: Session,
+    tenant: str | None = None,
+    org_id: str | None = None,
+) -> Tenant | None:
+    """Resolve a tenant slug or Webex org id to a Tenant, or None if unfiltered.
+
+    An org with no linked tenant is a 404 — the fleet should not silently
+    fall back to every customer.
+    """
+    if tenant:
+        t = session.exec(select(Tenant).where(Tenant.slug == tenant)).first()
+        if t is None:
+            raise HTTPException(status_code=404, detail=f"No tenant {tenant}")
+        return t
+    if org_id:
+        t = session.exec(select(Tenant).where(Tenant.webex_org_id == org_id)).first()
+        if t is None:
+            raise HTTPException(
+                status_code=404,
+                detail="That organisation is not linked to a tenant yet",
+            )
+        return t
+    return None
+
+
 __all__ = [
     "get_session",
     "get_config",
@@ -233,6 +286,8 @@ __all__ = [
     "device_view",
     "certificate_view",
     "ca_profile_view",
+    "tenant_view",
+    "resolve_tenant_filter",
     "get_device_or_404",
     "CertStatus",
 ]

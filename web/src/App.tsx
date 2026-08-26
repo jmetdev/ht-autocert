@@ -60,7 +60,7 @@ export function App() {
     { to: '/fleet', label: 'Fleet', icon: <IconServer2 size={16} /> },
     { to: '/discover', label: 'Discover', icon: <IconRadar size={16} /> },
     { to: '/runs', label: 'Run history', icon: <IconHistory size={16} /> },
-    { to: '/settings', label: 'Tenants & CAs', icon: <IconUsers size={16} /> },
+    { to: '/settings', label: 'Admin', icon: <IconUsers size={16} /> },
   ];
 
   return (
@@ -120,7 +120,7 @@ export function App() {
       <AppShell.Main>
         <Routes>
           <Route path="/" element={<Navigate to="/fleet" replace />} />
-          <Route path="/fleet" element={<FleetPage />} />
+          <Route path="/fleet" element={<FleetPage identity={identity} />} />
           <Route
             path="/devices/:fqdn"
             element={<DeviceDetailPage identity={identity} />}
@@ -130,7 +130,7 @@ export function App() {
             element={<DiscoverPage identity={identity} />}
           />
           <Route path="/runs" element={<RunsPage />} />
-          <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/settings" element={<SettingsPage identity={identity} />} />
           <Route path="*" element={<Navigate to="/fleet" replace />} />
         </Routes>
       </AppShell.Main>
