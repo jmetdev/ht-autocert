@@ -125,7 +125,7 @@ To stage a certificate ahead of a maintenance window without cutting over:
 ### The cutover sequence
 
 ```
-read state  →  HTTP copy .p12  →  clear IDLE trustpoint  →  import
+read state  →  SCP .p12  →  clear IDLE trustpoint  →  import
             →  set revocation-check  →  VERIFY cn + serial on device
             →  bind sip-ua  →  verify binding  →  write memory  →  delete .p12
 ```
@@ -384,19 +384,12 @@ The CLI equivalent is `./htac device trust <fqdn>`.
 
 ### PKCS12 transfer
 
-Deployment no longer SCPs the bundle onto the gateway. The console stages the
-`.p12` at a short-lived URL and tells the router to fetch it:
-
-```
-copy https://<HTAC_PUBLIC_BASE_URL>/bundle/<token> bootflash:htautocert.p12
-```
-
-Set `HTAC_PUBLIC_BASE_URL` to the console's **HTTPS** origin (the same hostname
-as the Cloudflare Tunnel). The tunnel does not publish plaintext HTTP, and
-IOS-XE `copy` will not follow an HTTP→HTTPS redirect. The token *is* the
-credential; there is no session cookie on that path. The gateway HTTP client
-must trust the origin certificate (often Let's Encrypt / Google Trust
-Services via Cloudflare).
+Deployment SCPs the `.p12` onto flash (`bootflash:htautocert.p12`), then
+imports it over the same SSH session. The console turns on
+`ip scp server enable` for the transfer; `write memory` at the end of a
+successful deploy persists it. The gateway HTTP client is not used — IOS-XE
+cannot trust Cloudflare's Google Trust Services certificate without a
+per-box trustpool import.
 
 ### Moving an existing datastore into the volume
 

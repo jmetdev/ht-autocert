@@ -261,23 +261,4 @@ def run_checks(session: Session, settings: Settings) -> Report:
                   "./htac tenant add ... --ca <profile>")
         )
 
-    if settings.public_base_url:
-        report.checks.append(
-            Check(
-                "public base URL",
-                OK,
-                settings.public_base_url,
-            )
-        )
-    else:
-        report.checks.append(
-            Check(
-                "public base URL",
-                WARN,
-                "HTAC_PUBLIC_BASE_URL is not set; gateways cannot download PKCS12 bundles",
-                "Set it to a URL the voice gateways can reach, e.g. "
-                "https://autocert.example.com",
-            )
-        )
-
     return report

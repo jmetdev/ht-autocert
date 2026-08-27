@@ -48,9 +48,9 @@ class FakeTransport:
             trustpoints=dict(self.trustpoints), bound_trustpoint=self.bound
         )
 
-    def fetch_file(self, url, remote_name):
-        self.calls.append(("fetch_file", url, remote_name))
-        self.files[remote_name] = b"fetched"
+    def upload_file(self, data, remote_name):
+        self.calls.append(("upload_file", remote_name, len(data)))
+        self.files[remote_name] = data
 
     def delete_file(self, remote_name):
         self.calls.append(("delete_file", remote_name))
@@ -97,7 +97,7 @@ def run(transport, *, idle="HT-WxCAutoCert-B", **kwargs):
     deployer = Deployer(transport, **kwargs)
     return deployer.deploy(
         fqdn=CN,
-        bundle_url="http://htac.test/bundle/test-token",
+        p12=b"pkcs12-bytes",
         password="secret",
         subject_cn=CN,
         serial=SERIAL,
@@ -123,8 +123,8 @@ def test_operations_happen_in_the_safe_order():
     run(t)
     names = t.names()
 
-    # Fetch must precede import.
-    assert names.index("fetch_file") < names.index("import_pkcs12")
+    # Upload must precede import.
+    assert names.index("upload_file") < names.index("import_pkcs12")
     assert names.index("import_pkcs12") < names.index("bind_trustpoint")
     assert names.index("set_revocation_check") < names.index("bind_trustpoint")
     # Config is saved only after the binding is confirmed.

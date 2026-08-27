@@ -26,23 +26,6 @@ def _read_secret(name: str) -> str | None:
     return None
 
 
-def normalize_public_base_url(url: str) -> str:
-    """Origin gateways ``copy`` from. Cloudflare Tunnel only publishes HTTPS.
-
-    A bare ``http://`` hostname hits Cloudflare's HTTPS redirect, which IOS-XE
-    ``copy`` does not follow, so the transfer dies. Hostnames without a scheme
-    are treated as HTTPS.
-    """
-    value = (url or "").strip().rstrip("/")
-    if not value:
-        return ""
-    if value.startswith("http://"):
-        return "https://" + value[len("http://") :]
-    if "://" not in value:
-        return "https://" + value.lstrip("/")
-    return value
-
-
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="HTAC_", env_file=".env", extra="ignore"
@@ -126,15 +109,6 @@ class Settings(BaseSettings):
     # an IOS-XE exec command.
     pkcs12_password: str = "HtAcPkcs12"
 
-    # URL the *gateways* use to fetch a staged PKCS12 (not the URL a browser
-    # uses to open the console). Deploy tells the router
-    # ``copy <this>/bundle/<token> bootflash:htautocert.p12``. Must be
-    # reachable from the voice-gateway VRF. Always HTTPS: Cloudflare Tunnel
-    # (and most public consoles) do not serve plaintext HTTP, and IOS ``copy``
-    # will not follow an HTTP→HTTPS redirect. The device HTTP client must
-    # trust the origin certificate.
-    public_base_url: str = ""
-
     @property
     def webex_scope_string(self) -> str:
         """Scopes as Webex wants them: space separated."""
@@ -162,11 +136,6 @@ class Settings(BaseSettings):
         if v:
             return v
         return _read_secret(f"HTAC_{info.field_name.upper()}") or ""
-
-    @field_validator("public_base_url", mode="before")
-    @classmethod
-    def _https_public_base_url(cls, v: str) -> str:
-        return normalize_public_base_url(v if isinstance(v, str) else "")
 
     def require_master_key(self) -> str:
         if not self.master_key:

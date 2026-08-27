@@ -320,7 +320,6 @@ def deploy_device(
     rebind: bool = Query(default=True, description="False stages without cutting over"),
     principal=Depends(require_operator),
     session: Session = Depends(get_session),
-    settings: Settings = Depends(get_config),
     box: SecretBox = Depends(get_box),
 ) -> ActionResultOut:
     device = get_device_or_404(session, fqdn)
@@ -334,7 +333,6 @@ def deploy_device(
         session,
         box,
         lambda d: build_transport(session, d, box),
-        public_base_url=settings.public_base_url,
     )
     result = service.deploy_device(
         device,

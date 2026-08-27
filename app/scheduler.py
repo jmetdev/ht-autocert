@@ -110,7 +110,6 @@ def run_renewal_cycle(
             session,
             box,
             lambda d: build_transport(session, d, box),
-            public_base_url=settings.public_base_url,
         )
         for device in due:
             if device.fqdn not in issued_fqdns:

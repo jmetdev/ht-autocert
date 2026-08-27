@@ -1175,7 +1175,6 @@ def deploy(
             session,
             box,
             lambda d: build_transport(session, d, box),
-            public_base_url=get_settings().public_base_url,
         )
 
         results = []

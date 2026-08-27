@@ -203,25 +203,3 @@ def test_certificate_fqdn_as_mgmt_address_is_warned_about(fleet):
 
     report = run_checks(session, _settings())
     assert _status(report, "management addresses") == WARN
-
-
-def test_http_public_base_url_is_upgraded_to_https():
-    from app.config import normalize_public_base_url
-
-    assert (
-        normalize_public_base_url("http://autocert.managedcollab.com")
-        == "https://autocert.managedcollab.com"
-    )
-    assert (
-        normalize_public_base_url("https://autocert.managedcollab.com/")
-        == "https://autocert.managedcollab.com"
-    )
-    assert (
-        normalize_public_base_url("autocert.managedcollab.com")
-        == "https://autocert.managedcollab.com"
-    )
-
-
-def test_settings_upgrades_http_public_base():
-    settings = _settings(public_base_url="http://autocert.managedcollab.com")
-    assert settings.public_base_url == "https://autocert.managedcollab.com"

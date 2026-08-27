@@ -136,7 +136,7 @@ def test_successful_deployment_updates_stored_state(issued_cert, box):
     session, device, cert = issued_cert
     transport = FakeTransport()
     service = DeploymentService(
-        session, box, lambda d: _ctx(transport), public_base_url="http://htac.test"
+        session, box, lambda d: _ctx(transport)
     )
 
     result = service.deploy_device(device, cert)
@@ -151,7 +151,7 @@ def test_failed_deployment_does_not_advance_active_trustpoint(issued_cert, box):
     session, device, cert = issued_cert
     transport = FakeTransport(import_result="reject")
     service = DeploymentService(
-        session, box, lambda d: _ctx(transport), public_base_url="http://htac.test"
+        session, box, lambda d: _ctx(transport)
     )
 
     result = service.deploy_device(device, cert)
@@ -166,7 +166,7 @@ def test_deployment_is_recorded_in_the_run_log(issued_cert, box):
 
     session, device, cert = issued_cert
     service = DeploymentService(
-        session, box, lambda d: _ctx(FakeTransport()), public_base_url="http://htac.test"
+        session, box, lambda d: _ctx(FakeTransport())
     )
     service.deploy_device(device, cert)
 
@@ -182,7 +182,7 @@ def test_key_access_is_audited(issued_cert, box):
 
     session, device, cert = issued_cert
     service = DeploymentService(
-        session, box, lambda d: _ctx(FakeTransport()), public_base_url="http://htac.test"
+        session, box, lambda d: _ctx(FakeTransport())
     )
     service.deploy_device(device, cert)
 
@@ -210,7 +210,7 @@ def test_previous_certificate_is_superseded(issued_cert, box):
     session.commit()
 
     service = DeploymentService(
-        session, box, lambda d: _ctx(FakeTransport()), public_base_url="http://htac.test"
+        session, box, lambda d: _ctx(FakeTransport())
     )
     service.deploy_device(device, cert)
 
@@ -229,7 +229,7 @@ def test_deploys_into_the_certificate_target_trustpoint(issued_cert, box):
         }
     )
     service = DeploymentService(
-        session, box, lambda d: _ctx(transport), public_base_url="http://htac.test"
+        session, box, lambda d: _ctx(transport)
     )
 
     service.deploy_device(device, cert)

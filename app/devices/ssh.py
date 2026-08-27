@@ -1,18 +1,19 @@
-"""IOS-XE transport over SSH (scrapli).
+"""IOS-XE transport over SSH (scrapli) with SCP file transfer.
 
-PKCS12 bundles are pulled by the gateway over HTTPS (``copy https://...``) rather
-than pushed with SCP, which needs ``ip scp server enable`` and is a frequent
-source of transfer failures. Driving ``crypto pki import`` over SSH means the
-PKCS12 password lives only in the session -- it is never rendered into
-``running-config``.
+PKCS12 bundles are pushed with SCP. The gateway HTTP client cannot trust the
+console's Cloudflare/GTS certificate, so ``copy https://...`` fails with an
+I/O error. Driving ``crypto pki import`` over SSH means the PKCS12 password
+lives only in the session -- it is never rendered into ``running-config``.
 
 Prompt handling was validated against a Catalyst 8200 running IOS-XE 17.15.3a
 by capturing the raw channel; see the notes on the constants below.
 """
 
+import io
 import os
 import tempfile
 
+import paramiko
 import structlog
 from scrapli import Scrapli
 from scrapli.exceptions import ScrapliException
@@ -204,59 +205,57 @@ class IosXeSshTransport:
         )
         return state
 
-    def fetch_file(self, url: str, remote_name: str) -> None:
-        """Have the gateway download a file over HTTPS onto flash.
+    def upload_file(self, data: bytes, remote_name: str) -> None:
+        """SCP the bundle to flash.
 
-        ``file prompt quiet`` suppresses the destination-filename confirmation
-        so a fully-specified ``copy <url> <dest>`` returns to the exec prompt.
-        The prompt mode is restored afterwards. The origin must be HTTPS:
-        Cloudflare Tunnel does not publish plaintext HTTP, and IOS will not
-        follow a redirect.
+        Requires ``ip scp server enable``. That flag is turned on here (it is
+        idempotent) because the Ansible role enabled it and never wrote
+        memory, so it vanished on reload.
         """
-        dest = self._remote_path(remote_name)
-        self._send_interactive(
-            [("file prompt quiet", PROMPT_EXEC)],
-            privilege_level="privilege_exec",
-        )
+        from scp import SCPClient
+
         try:
-            response = self.conn.send_command(
-                f"copy {url} {dest}", timeout_ops=max(self._timeout_ops, 120.0)
+            self._send_configs(["ip scp server enable"])
+        except DeviceError as exc:
+            log.warning(
+                "device.scp_server_enable_failed", host=self.host, error=str(exc)
             )
-            result = response.result
-            if response.failed:
-                raise DeviceError(
-                    f"{self.host}: HTTP copy of {remote_name} failed: {result}"
-                )
-            lowered = result.lower()
-            for marker in (
-                "%error",
-                "error opening",
-                "connection refused",
-                "timed out",
-                "404",
-                "401",
-                "403",
-                "failed to",
-            ):
-                if marker in lowered:
-                    raise DeviceError(
-                        f"{self.host}: HTTP copy of {remote_name} reported: "
-                        f"{result.strip()}"
-                    )
+
+        client = paramiko.SSHClient()
+        if self.strict_host_key:
+            known_hosts = self._known_hosts_path()
+            if known_hosts:
+                client.load_host_keys(known_hosts)
+            else:
+                client.load_system_host_keys()
+            client.set_missing_host_key_policy(paramiko.RejectPolicy())
+        else:
+            client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+
+        try:
+            client.connect(
+                hostname=self.host,
+                port=self.port,
+                username=self.username,
+                password=self.password,
+                look_for_keys=False,
+                allow_agent=False,
+                timeout=30,
+            )
+            with SCPClient(client.get_transport(), socket_timeout=120.0) as scp:
+                scp.putfo(io.BytesIO(data), self._remote_path(remote_name))
+        except Exception as exc:  # noqa: BLE001 - surfaced with context
+            raise DeviceError(
+                f"{self.host}: SCP upload of {remote_name} failed: {exc} "
+                "(is 'ip scp server enable' configured?)"
+            ) from exc
         finally:
-            try:
-                self._send_interactive(
-                    [("file prompt noisy", PROMPT_EXEC)],
-                    privilege_level="privilege_exec",
-                )
-            except DeviceError:
-                pass
+            client.close()
 
         log.info(
-            "device.file_fetched",
+            "device.file_uploaded",
             host=self.host,
-            path=dest,
-            url_host=url.split("/")[2] if "://" in url else url,
+            path=self._remote_path(remote_name),
         )
 
     def delete_file(self, remote_name: str) -> None:
