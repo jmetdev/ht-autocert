@@ -294,15 +294,12 @@ class DeploymentService:
         revocation_check: str = "none",
         actor: str = "cli",
     ) -> DeploymentResult:
-        from app.vault import aad_pkcs12, aad_pkcs12_password
+        from app.issuance import materialize_pkcs12
 
         run_id = run_id or uuid.uuid4().hex[:12]
         bound = log.bind(run_id=run_id, fqdn=device.fqdn)
 
-        p12 = self.box.open(cert.pkcs12_sealed, aad_pkcs12(device.fqdn, cert.serial))
-        password = self.box.open(
-            cert.pkcs12_password_sealed, aad_pkcs12_password(device.fqdn, cert.serial)
-        ).decode()
+        p12, password = materialize_pkcs12(self.box, cert, device)
         self.session.add(
             AuditEvent(
                 actor=actor,

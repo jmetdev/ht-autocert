@@ -337,7 +337,7 @@ export const api = {
       body: JSON.stringify(body),
     }),
   updateTenant: (slug: string, body: Partial<TenantWrite> & { enabled?: boolean }) =>
-    request<Tenant>(`/api/tenants/${slug}`, {
+    request<Tenant>(`/api/tenants/${encodeURIComponent(slug)}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),

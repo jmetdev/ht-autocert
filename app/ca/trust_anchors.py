@@ -7,8 +7,9 @@ Let's Encrypt's default Generation Y chain is::
 The ACME download includes the YR cross-sign (issuer CN ``ISRG Root X1``) but
 not X1 itself — browsers already have that root. Cisco ``crypto pki import``
 of a PKCS12 does not: without the X1 *certificate* in the CA bag the gateway
-has YR and nothing it trusts, which is what ``--preferred-chain "ISRG Root X1"``
-is trying to avoid.
+has YR and nothing it trusts. The default ACME chain is four deep::
+
+    EE ← YR1/YR2 ← Root YR (cross-signed by ISRG Root X1)  [X1 omitted]
 
 Appending the matching self-signed root (matched on the last cert's issuer CN)
 completes the bag without changing which chain ACME selected.

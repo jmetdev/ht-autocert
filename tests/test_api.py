@@ -536,6 +536,19 @@ def test_duplicate_tenant_is_conflict(client):
     assert response.status_code == 409
 
 
+def test_can_reassign_a_tenant_ca(client):
+    created = client.post(
+        "/api/ca-profiles",
+        json={"name": "le-prod", "email": "ops@example.com", "staging": False},
+    )
+    assert created.status_code == 200
+    patched = client.patch("/api/tenants/husd", json={"ca": "le-prod"})
+    assert patched.status_code == 200, patched.text
+    assert patched.json()["ca_profile_name"] == "le-prod"
+    listed = {t["slug"]: t for t in client.get("/api/tenants").json()}
+    assert listed["husd"]["ca_profile_name"] == "le-prod"
+
+
 def test_ca_profile_crud(client):
     created = client.post(
         "/api/ca-profiles",

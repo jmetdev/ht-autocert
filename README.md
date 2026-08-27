@@ -178,7 +178,8 @@ cross-sign but **not** the X1 root certificate, because browsers already have
 X1. Cisco `crypto pki import` of a PKCS12 does not: without X1 in the bag the
 gateway only has YR. Set `--preferred-chain "ISRG Root X1"` on the CA profile;
 issuance selects that path and **appends ISRG Root X1** to the stored chain and
-the `.p12`. Re-issue after this change so existing bundles pick it up. Every
+the `.p12`. Download and deploy rebuild the bag from the stored chain, so an
+older sealed bundle still picks X1 up without re-issuing. Every
 issued certificate records the chain that shipped, so a rollover is visible in
 `./htac status`.
 

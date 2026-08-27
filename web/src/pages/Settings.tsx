@@ -39,6 +39,11 @@ import {
   type Tenant,
 } from '../lib/api';
 
+function caOptionLabel(profile: CAProfile): string {
+  const kind = profile.directory_url.includes('acme-staging') ? 'staging' : 'production';
+  return profile.enabled ? `${profile.name} · ${kind}` : `${profile.name} · ${kind} (disabled)`;
+}
+
 export function SettingsPage({ identity }: { identity: Identity | null }) {
   const canAdmin = hasRole(identity, 'admin');
   const [tenants, setTenants] = useState<Tenant[]>([]);
@@ -113,6 +118,7 @@ function TenantsPanel({
   onChange: () => void;
 }) {
   const [opened, { open, close }] = useDisclosure();
+  const [editing, setEditing] = useState<Tenant | null>(null);
   const [credsFor, setCredsFor] = useState<Tenant | null>(null);
 
   return (
@@ -152,7 +158,36 @@ function TenantsPanel({
                 <Table.Td>
                   <Code>{tenant.domain_suffix}</Code>
                 </Table.Td>
-                <Table.Td>{tenant.ca_profile_name ?? '—'}</Table.Td>
+                <Table.Td>
+                  {canAdmin ? (
+                    <Select
+                      size="xs"
+                      w={240}
+                      allowDeselect={false}
+                      comboboxProps={{ withinPortal: true }}
+                      data={profiles.map((p) => ({
+                        value: p.name,
+                        label: caOptionLabel(p),
+                      }))}
+                      value={tenant.ca_profile_name}
+                      onChange={async (value) => {
+                        if (!value || value === tenant.ca_profile_name) return;
+                        try {
+                          await api.updateTenant(tenant.slug, { ca: value });
+                          notifications.show({
+                            color: 'green',
+                            message: `${tenant.slug} will issue from ${value}`,
+                          });
+                          onChange();
+                        } catch (err) {
+                          notifications.show({ color: 'red', message: (err as Error).message });
+                        }
+                      }}
+                    />
+                  ) : (
+                    tenant.ca_profile_name ?? '—'
+                  )}
+                </Table.Td>
                 <Table.Td>
                   {tenant.webex_org_name || tenant.webex_org_id ? (
                     <Text size="xs">{tenant.webex_org_name || tenant.webex_org_id}</Text>
@@ -167,6 +202,9 @@ function TenantsPanel({
                 {canAdmin && (
                   <Table.Td>
                     <Group gap="xs" justify="flex-end">
+                      <Button size="compact-xs" variant="light" onClick={() => setEditing(tenant)}>
+                        Edit
+                      </Button>
                       <Button size="compact-xs" variant="light" onClick={() => setCredsFor(tenant)}>
                         Credentials
                       </Button>
@@ -195,11 +233,16 @@ function TenantsPanel({
         </Table>
       </Paper>
       <TenantModal
-        opened={opened}
-        onClose={close}
+        opened={opened || !!editing}
+        tenant={editing}
+        onClose={() => {
+          close();
+          setEditing(null);
+        }}
         profiles={profiles}
         onSaved={() => {
           close();
+          setEditing(null);
           onChange();
         }}
       />
@@ -224,11 +267,13 @@ function TenantModal({
   onClose,
   profiles,
   onSaved,
+  tenant,
 }: {
   opened: boolean;
   onClose: () => void;
   profiles: CAProfile[];
   onSaved: () => void;
+  tenant?: Tenant | null;
 }) {
   const [slug, setSlug] = useState('');
   const [name, setName] = useState('');
@@ -236,19 +281,47 @@ function TenantModal({
   const [ca, setCa] = useState<string | null>(null);
   const [days, setDays] = useState<number | string>(30);
   const [busy, setBusy] = useState(false);
+  const editing = Boolean(tenant);
+
+  useEffect(() => {
+    if (!opened) return;
+    if (tenant) {
+      setSlug(tenant.slug);
+      setName(tenant.name);
+      setSuffix(tenant.domain_suffix);
+      setCa(tenant.ca_profile_name);
+      setDays(tenant.renew_before_days);
+      return;
+    }
+    setSlug('');
+    setName('');
+    setSuffix('');
+    setCa(null);
+    setDays(30);
+  }, [opened, tenant]);
 
   const submit = async () => {
     if (!slug || !name || !suffix || !ca) return;
     setBusy(true);
     try {
-      await api.createTenant({
-        slug,
-        name,
-        domain_suffix: suffix,
-        ca,
-        renew_before_days: Number(days) || 30,
-      });
-      notifications.show({ color: 'green', message: `Added tenant ${slug}` });
+      if (editing) {
+        await api.updateTenant(slug, {
+          name,
+          domain_suffix: suffix,
+          ca,
+          renew_before_days: Number(days) || 30,
+        });
+        notifications.show({ color: 'green', message: `Updated tenant ${slug}` });
+      } else {
+        await api.createTenant({
+          slug,
+          name,
+          domain_suffix: suffix,
+          ca,
+          renew_before_days: Number(days) || 30,
+        });
+        notifications.show({ color: 'green', message: `Added tenant ${slug}` });
+      }
       onSaved();
     } catch (err) {
       notifications.show({ color: 'red', message: (err as Error).message });
@@ -258,9 +331,15 @@ function TenantModal({
   };
 
   return (
-    <Modal opened={opened} onClose={onClose} title="Add tenant">
+    <Modal opened={opened} onClose={onClose} title={editing ? `Edit ${tenant?.slug}` : 'Add tenant'}>
       <Stack>
-        <TextInput label="Slug" placeholder="husd" value={slug} onChange={(e) => setSlug(e.currentTarget.value)} />
+        <TextInput
+          label="Slug"
+          placeholder="husd"
+          value={slug}
+          disabled={editing}
+          onChange={(e) => setSlug(e.currentTarget.value)}
+        />
         <TextInput label="Name" value={name} onChange={(e) => setName(e.currentTarget.value)} />
         <TextInput
           label="Domain suffix"
@@ -270,7 +349,13 @@ function TenantModal({
         />
         <Select
           label="CA profile"
-          data={profiles.map((p) => ({ value: p.name, label: p.name }))}
+          description="The next issuance for this tenant uses this CA. Existing certificates stay as they are until you re-issue."
+          allowDeselect={false}
+          comboboxProps={{ withinPortal: true }}
+          data={profiles.map((p) => ({
+            value: p.name,
+            label: caOptionLabel(p),
+          }))}
           value={ca}
           onChange={setCa}
         />
@@ -280,7 +365,7 @@ function TenantModal({
             Cancel
           </Button>
           <Button onClick={submit} loading={busy} disabled={!slug || !name || !suffix || !ca}>
-            Add
+            {editing ? 'Save' : 'Add'}
           </Button>
         </Group>
       </Stack>

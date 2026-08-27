@@ -36,6 +36,7 @@ from app.dns.cloudflare import CloudflareSolver
 from app.pkcs12_builder import build_pkcs12, generate_pkcs12_password, verify_pkcs12
 from app.vault import (
     SecretBox,
+    VaultError,
     aad_account_key,
     aad_eab,
     aad_pkcs12,
@@ -44,6 +45,50 @@ from app.vault import (
 )
 
 log = structlog.get_logger(__name__)
+
+
+def materialize_pkcs12(box: SecretBox, cert: Certificate, device: Device) -> tuple[bytes, str]:
+    """PKCS12 for export or deploy, rebuilt from the stored chain.
+
+    Bundles sealed at issuance may predate trust-anchor completion (ISRG Root
+    X1 after a Generation Y chain). ``build_pkcs12`` runs ``complete_chain``
+    again so a download or deploy always carries the full bag. Falls back to
+    the sealed blob when the chain or key cannot be rebuilt (legacy rows).
+    """
+    password = box.open(
+        cert.pkcs12_password_sealed, aad_pkcs12_password(device.fqdn, cert.serial)
+    ).decode()
+    fullchain = (cert.fullchain_pem or "").strip()
+    if fullchain and cert.private_key_sealed:
+        try:
+            key_pem = box.open(
+                cert.private_key_sealed, aad_private_key(device.fqdn, cert.serial)
+            )
+            blob = build_pkcs12(
+                friendly_name=cert.target_trustpoint or device.idle_trustpoint(),
+                private_key_pem=key_pem,
+                fullchain_pem=fullchain,
+                password=password,
+                profile=cert.pkcs12_profile or device.pkcs12_profile,
+            )
+            _cn, chain_len = verify_pkcs12(blob, password)
+            log.info(
+                "pkcs12.materialized",
+                fqdn=device.fqdn,
+                serial=cert.serial,
+                chain_certs=chain_len,
+            )
+            return blob, password
+        except (VaultError, ValueError) as exc:
+            log.warning(
+                "pkcs12.rebuild_failed",
+                fqdn=device.fqdn,
+                serial=cert.serial,
+                error=str(exc),
+            )
+    blob = box.open(cert.pkcs12_sealed, aad_pkcs12(device.fqdn, cert.serial))
+    return blob, password
+
 
 
 class DbAccountStore(AccountStore):
@@ -351,11 +396,8 @@ class IssuanceService:
     def export_pkcs12(
         self, cert: Certificate, device: Device, actor: str = "cli"
     ) -> tuple[bytes, str]:
-        """Unseal a bundle and its password, recording the access."""
-        blob = self.box.open(cert.pkcs12_sealed, aad_pkcs12(device.fqdn, cert.serial))
-        password = self.box.open(
-            cert.pkcs12_password_sealed, aad_pkcs12_password(device.fqdn, cert.serial)
-        ).decode()
+        """PKCS12 for the operator download, rebuilt so the CA bag is complete."""
+        blob, password = materialize_pkcs12(self.box, cert, device)
         self.session.add(
             AuditEvent(
                 actor=actor,
