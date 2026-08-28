@@ -179,11 +179,32 @@ def fetch_host_key(host: str, port: int = 22) -> tuple[str, str, str]:
 
     import paramiko
 
-    sock = socket.create_connection((host, port), timeout=15)
+    log.info("device.host_key_connect", host=host, port=port)
+    try:
+        sock = socket.create_connection((host, port), timeout=15)
+    except OSError as exc:
+        log.error(
+            "device.host_key_tcp_failed",
+            host=host,
+            port=port,
+            error_type=type(exc).__name__,
+            error=str(exc),
+        )
+        raise
     transport = paramiko.Transport(sock)
     try:
         transport.start_client(timeout=15)
         key = transport.get_remote_server_key()
+    except Exception as exc:
+        log.error(
+            "device.host_key_handshake_failed",
+            host=host,
+            port=port,
+            error_type=type(exc).__name__,
+            error=str(exc),
+            exc_info=True,
+        )
+        raise
     finally:
         transport.close()
 

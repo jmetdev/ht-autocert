@@ -334,3 +334,35 @@ def test_doctor_warns_about_unpinned_devices(fleet, box):
     check = next(c for c in report.checks if c.name == "ssh host keys")
     assert check.status == WARN
     assert "container" in check.remedy
+
+
+def test_preview_host_key_rejects_acme_fqdn(fleet):
+    """Pinning must not SSH to the certificate FQDN — it has no A record."""
+    from app.inventory import InventoryError, preview_host_key
+
+    session, _, device = fleet
+    device.mgmt_address = device.fqdn
+    session.add(device)
+    session.commit()
+
+    with pytest.raises(InventoryError, match="no management IP") as caught:
+        preview_host_key(session, device.fqdn)
+    assert caught.value.status == 409
+
+
+def test_preview_host_key_fetches_from_mgmt_ip(fleet, monkeypatch):
+    from app.inventory import preview_host_key
+
+    session, _, device = fleet
+
+    def fake_fetch(host, port=22):
+        assert host == "10.0.0.1"
+        assert port == 22
+        return f"{host} ssh-rsa AAAA", "ssh-rsa", "SHA256:abcd"
+
+    monkeypatch.setattr("app.devices.factory.fetch_host_key", fake_fetch)
+    preview = preview_host_key(session, device.fqdn)
+    assert preview.address == "10.0.0.1"
+    assert preview.key_type == "ssh-rsa"
+    assert preview.fingerprint == "SHA256:abcd"
+    assert preview.already_pinned is False

@@ -252,6 +252,12 @@ def device_live_state(
         with build_transport(session, device, box) as transport:
             state = transport.read_state()
     except DeviceError as exc:
+        log.error(
+            "device.live_state_failed",
+            fqdn=fqdn,
+            host=host,
+            error=str(exc),
+        )
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     cert = latest_certificate(session, device)

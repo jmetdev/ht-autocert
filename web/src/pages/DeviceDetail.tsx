@@ -443,37 +443,47 @@ export function DeviceDetailPage({ identity }: { identity: Identity | null }) {
           </Button>
         )}
         {canAdmin && (
-          <Button
-            variant="light"
-            onClick={async () => {
-              setBusy(true);
-              try {
-                const preview = await api.previewHostKey(device.fqdn);
-                const ok =
-                  preview.already_pinned ||
-                  confirm(
-                    `${preview.key_type} ${preview.fingerprint}\n\nPin this host key?` +
-                      (preview.differs_from_pinned
-                        ? '\n\nWARNING: a different key is already pinned.'
-                        : ''),
-                  );
-                if (!ok) return;
-                const pinned = await api.pinHostKey(device.fqdn);
-                notifications.show({
-                  color: 'green',
-                  message: `Pinned ${pinned.key_type} ${pinned.fingerprint}`,
-                });
-                load();
-              } catch (err) {
-                notifications.show({ color: 'red', message: (err as Error).message });
-              } finally {
-                setBusy(false);
-              }
-            }}
-            loading={busy}
+          <Tooltip
+            label={
+              device.has_mgmt_address
+                ? 'Stores this gateway’s SSH public key with the device record. The container has no known_hosts, so later deploys refuse a changed key.'
+                : 'Set a management IP first. The certificate FQDN is for ACME and is not reachable over SSH.'
+            }
+            withArrow
           >
-            Pin SSH host key
-          </Button>
+            <Button
+              variant="light"
+              disabled={!device.has_mgmt_address}
+              onClick={async () => {
+                setBusy(true);
+                try {
+                  const preview = await api.previewHostKey(device.fqdn);
+                  const ok =
+                    preview.already_pinned ||
+                    confirm(
+                      `${preview.key_type} ${preview.fingerprint}\n\nPin this host key?` +
+                        (preview.differs_from_pinned
+                          ? '\n\nWARNING: a different key is already pinned.'
+                          : ''),
+                    );
+                  if (!ok) return;
+                  const pinned = await api.pinHostKey(device.fqdn);
+                  notifications.show({
+                    color: 'green',
+                    message: `Pinned ${pinned.key_type} ${pinned.fingerprint}`,
+                  });
+                  load();
+                } catch (err) {
+                  notifications.show({ color: 'red', message: (err as Error).message });
+                } finally {
+                  setBusy(false);
+                }
+              }}
+              loading={busy}
+            >
+              Pin SSH host key
+            </Button>
+          </Tooltip>
         )}
       </Group>
 

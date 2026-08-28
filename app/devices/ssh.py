@@ -130,6 +130,12 @@ class IosXeSshTransport:
         try:
             self._conn.open()
         except ScrapliException as exc:
+            log.error(
+                "device.ssh_open_failed",
+                host=self.host,
+                port=self.port,
+                error=str(exc),
+            )
             raise DeviceError(f"could not open SSH session to {self.host}: {exc}") from exc
 
     def close(self) -> None:

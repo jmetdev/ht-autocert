@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import structlog
 from sqlmodel import Session, select
 
 from app.db.models import (
@@ -20,8 +21,11 @@ from app.db.models import (
     RunLog,
     Tenant,
 )
+from app.devices.base import management_host
 from app.devices.factory import aad_device_secret, aad_tenant_secret
 from app.vault import SecretBox, aad_eab
+
+log = structlog.get_logger(__name__)
 
 LETSENCRYPT_PROD = "https://acme-v02.api.letsencrypt.org/directory"
 LETSENCRYPT_STAGING = "https://acme-staging-v02.api.letsencrypt.org/directory"
@@ -455,17 +459,52 @@ def preview_host_key(session: Session, fqdn: str) -> HostKeyPreview:
     from app.devices.factory import fetch_host_key
 
     device = _device_by_fqdn(session, fqdn)
-    try:
-        line, key_type, fingerprint = fetch_host_key(device.mgmt_address, device.ssh_port)
-    except Exception as exc:  # noqa: BLE001 - network failure, reported as-is
+    host = management_host(device.mgmt_address, device.fqdn)
+    if not host:
+        log.warning(
+            "device.host_key_no_mgmt",
+            fqdn=device.fqdn,
+            stored_address=device.mgmt_address,
+        )
         raise InventoryError(
-            f"Could not reach {device.mgmt_address}:{device.ssh_port} — {exc}",
+            f"{device.fqdn}: no management IP set. The certificate FQDN is for "
+            "ACME only and has no A record, so SSH host-key pinning cannot use "
+            "it. Set the IOS management IP on the device page first.",
+            409,
+        )
+    log.info(
+        "device.host_key_fetch",
+        fqdn=device.fqdn,
+        address=host,
+        port=device.ssh_port,
+    )
+    try:
+        line, key_type, fingerprint = fetch_host_key(host, device.ssh_port)
+    except Exception as exc:  # noqa: BLE001 - network failure, reported as-is
+        log.error(
+            "device.host_key_fetch_failed",
+            fqdn=device.fqdn,
+            address=host,
+            port=device.ssh_port,
+            error_type=type(exc).__name__,
+            error=str(exc),
+            exc_info=True,
+        )
+        raise InventoryError(
+            f"Could not reach {host}:{device.ssh_port} — {exc}",
             502,
         ) from exc
+    log.info(
+        "device.host_key_fetched",
+        fqdn=device.fqdn,
+        address=host,
+        key_type=key_type,
+        fingerprint=fingerprint,
+    )
     existing = (device.ssh_host_key or "").strip()
     return HostKeyPreview(
         fqdn=device.fqdn,
-        address=device.mgmt_address,
+        address=host,
         port=device.ssh_port,
         line=line,
         key_type=key_type,

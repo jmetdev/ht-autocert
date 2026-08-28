@@ -6,6 +6,7 @@ The CLI remains as an emergency path against the same inventory functions.
 
 from __future__ import annotations
 
+import structlog
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 from sqlmodel import Session, select
@@ -68,6 +69,8 @@ from app.inventory import (
 from app.issuance import IssuanceService, latest_certificate
 from app.vault import SecretBox
 
+log = structlog.get_logger(__name__)
+
 router = APIRouter(prefix="/api", dependencies=[Depends(require_viewer)])
 
 
@@ -75,6 +78,11 @@ def _call(fn):
     try:
         return fn()
     except InventoryError as exc:
+        log.error(
+            "inventory.error",
+            status=exc.status,
+            detail=str(exc),
+        )
         raise HTTPException(status_code=exc.status, detail=str(exc)) from exc
 
 
