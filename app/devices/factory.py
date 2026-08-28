@@ -110,20 +110,26 @@ class ApiFirstTransport:
             self.ssh.close()
 
     def read_state(self):
-        try:
-            return self.reader.read_state()
-        except DeviceError as exc:
-            # RESTCONF is preferred, but Catalyst 8200s often have WebUI on 443
-            # without ``restconf`` enabled. Live state already has an SSH path.
-            log.warning(
-                "device.restconf_fallback_ssh",
-                host=self.host,
-                error=str(exc),
-            )
-            if not self._ssh_open:
-                self.ssh.open()
-                self._ssh_open = True
-            return self.ssh.read_state()
+        # HTTPS on these Catalysts accepts TCP/443 then never completes the
+        # GET. httpx timeouts do not interrupt that hang, so live state and
+        # deploy verify would block until the reverse proxy dies. Reads go
+        # over SSH; RESTCONF is kept for the reader tests and a future path.
+        log.warning(
+            "device.restconf_skipped_ssh",
+            host=self.host,
+            reason="ios https hang",
+        )
+        if not self._ssh_open:
+            self.ssh.open()
+            self._ssh_open = True
+        state = self.ssh.read_state()
+        log.info(
+            "device.ssh_state",
+            host=self.host,
+            bound=state.bound_trustpoint,
+            trustpoints=sorted(state.trustpoints),
+        )
+        return state
 
     def _mutation(self, name, *args, **kwargs):
         if not self._ssh_open:

@@ -259,6 +259,13 @@ def device_live_state(
             error=str(exc),
         )
         raise HTTPException(status_code=502, detail=str(exc)) from exc
+    log.info(
+        "device.live_state",
+        fqdn=fqdn,
+        host=host,
+        bound=state.bound_trustpoint,
+        trustpoints=sorted(state.trustpoints),
+    )
 
     cert = latest_certificate(session, device)
     matches = False

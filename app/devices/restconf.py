@@ -73,10 +73,18 @@ class RestconfReader:
         *,
         port: int = 443,
         verify: bool | str = False,
-        timeout: float = 30.0,
+        timeout: float = 8.0,
         client: httpx.Client | None = None,
     ):
         self.host = host
+        # Connect/read splits matter: IOS HTTP often accepts TCP then never
+        # completes TLS or the YANG GET, and a single float timeout does not
+        # always interrupt the handshake.
+        limits = (
+            timeout
+            if isinstance(timeout, httpx.Timeout)
+            else httpx.Timeout(timeout, connect=5.0, read=timeout, write=5.0, pool=5.0)
+        )
         self._client = client or httpx.Client(
             base_url=f"https://{host}:{port}",
             auth=(username, password),
@@ -84,13 +92,20 @@ class RestconfReader:
             # Gateways typically present the very certificate this tool
             # manages, so verification is opt-in per device.
             verify=verify,
-            timeout=timeout,
+            timeout=limits,
         )
 
     def read_state(self) -> DeviceState:
+        log.info("device.restconf_read", host=self.host)
         try:
             response = self._client.get(OPER_PATH)
         except httpx.HTTPError as exc:
+            log.warning(
+                "device.restconf_failed",
+                host=self.host,
+                error_type=type(exc).__name__,
+                error=str(exc),
+            )
             raise DeviceError(f"{self.host}: RESTCONF request failed: {exc}") from exc
 
         if response.status_code == 404:
@@ -108,7 +123,13 @@ class RestconfReader:
                 f"{self.host}: RESTCONF returned HTTP {response.status_code}"
             )
 
-        payload = response.json()
+        try:
+            payload = response.json()
+        except ValueError as exc:
+            raise DeviceError(
+                f"{self.host}: RESTCONF returned HTTP {response.status_code} "
+                "without YANG JSON"
+            ) from exc
         bundles = payload.get(
             "Cisco-IOS-XE-crypto-pki-oper:crypto-pki-bundle", []
         ) or payload.get("crypto-pki-bundle", [])
